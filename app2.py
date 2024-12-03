@@ -612,8 +612,6 @@ def view_statistics_page():
             st.info("No attendance records found for the selected criteria")
             
 
-
-
 def get_column_width(col_name, values):
     try:
         max_length = max(
@@ -636,108 +634,167 @@ def admin_page():
                 del st.session_state[key]
             st.rerun()
     
-    # Add tabs for different operations
-    tab1, tab2 = st.tabs(["Edit Data", "Bulk Upload"])
+    st.subheader(f"Edit {sheet}")
     
-    with tab1:
-        st.subheader(f"Edit {sheet}")
-        show_data_editor(sheet)
-    
-    with tab2:
-        st.subheader("Bulk Upload")
-        
-        # Download template button
-        if st.button("Download Template"):
-            template_df = create_template_df(sheet)
-            buffer = io.BytesIO()
-            
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                template_df.to_excel(writer, index=False)
-                
-                # Format template
-                worksheet = writer.sheets['Sheet1']
-                for column in worksheet.columns:
-                    max_length = max(len(str(cell.value)) for cell in column)
-                    worksheet.column_dimensions[column[0].column_letter].width = max_length + 2
-            
-            st.download_button(
-                label="Download Template Excel",
-                data=buffer.getvalue(),
-                file_name=f"{sheet}_template.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        
-        # Upload file
-        uploaded_file = st.file_uploader("Upload Excel file", type=['xlsx'])
-        if uploaded_file is not None:
-            try:
-                df = pd.read_excel(uploaded_file)
-                st.write("Preview of uploaded data:")
-                st.dataframe(df)
-                
-                if st.button("Confirm Upload"):
-                    # Validate data
-                    if validate_upload_data(df, sheet):
-                        # Save to Excel
-                        with pd.ExcelWriter('attendance.xlsx', 
-                                          mode='a',
-                                          if_sheet_exists='overlay') as writer:
-                            df.to_excel(writer, sheet_name=sheet, index=False)
-                        st.success("Data uploaded successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Invalid data format. Please use the template.")
-            except Exception as e:
-                st.error(f"Error processing file: {str(e)}")
-
-def create_template_df(sheet_name):
-    """Create template DataFrame based on sheet type"""
-    if sheet_name == 'Faculty':
-        return pd.DataFrame(columns=['Faculty Name', 'Password'])
-    elif sheet_name == 'Section-Subject-Mapping':
-        return pd.DataFrame(columns=['Section', 'Subject Names'])
-    elif sheet_name.startswith('(O)'):
-        return pd.DataFrame(columns=['HT Number', 'Student Name', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6'])
-    else:  # Manipulated sections
-        return pd.DataFrame(columns=['HT Number', 'Student Name', 'Original Section'])
-
-def validate_upload_data(df, sheet_name):
-    """Validate uploaded data against expected format"""
-    template_df = create_template_df(sheet_name)
-    return all(col in df.columns for col in template_df.columns)
-
-def show_data_editor(sheet):
-    """Show the data editor component"""
     try:
+        # Read data
         df = pd.read_excel('attendance.xlsx', sheet_name=sheet)
+        
+        # Convert all columns to string and handle special formatting
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = df[col].astype(float).astype(str)
+            elif pd.api.types.is_datetime64_any_dtype(df[col]):
+                df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                df[col] = df[col].astype(str)
+        
         df = df.fillna('')
         
-        # Configure columns with appropriate heights
-        column_config = {}
+        # Remove empty rows
+        df = df.loc[df.replace('', np.nan).notna().any(axis=1)].copy()
+        df = df.reset_index(drop=True)
+        
+        # Calculate column heights based on content
+        max_lines = {col: 1 for col in df.columns}
         for col in df.columns:
-            width = 150 if col in ['HT Number', 'Student Name', 'Faculty Name'] else 300
-            column_config[str(col)] = st.column_config.TextColumn(
-                col,
-                width=width,
-                help=f"Enter {col}",
-                max_chars=None
-            )
-        
-        # Display editor
-        edited_df = st.data_editor(
-            df,
-            use_container_width=True,
-            num_rows="dynamic",
-            column_config=column_config,
-            hide_index=True,
-            height=600
-        )
-        
-        if st.button("Save Changes"):
-            save_changes(edited_df, sheet)
-            
+            for val in df[col]:
+                if pd.notna(val) and val:
+                    lines = str(val).count('\n') + 1
+                    max_lines[col] = max(max_lines[col], lines)
+    
     except Exception as e:
         st.error(f"Error reading Excel file: {e}")
+        return
+
+    # Configure columns with appropriate heights
+    column_config = {}
+    for col in df.columns:
+        # Base height on content
+        height = max(100, min(400, max_lines[col] * 35))
+        
+        # Different widths for different column types
+        if col in ['Faculty Name', 'Credential', 'Student Name', 'HT Number']:
+            width = 150
+        else:
+            width = 300
+            
+        column_config[str(col)] = st.column_config.TextColumn(
+            str(col),
+            width=width,
+            help=f"Enter {col}",
+            max_chars=None
+        )
+
+    # Add filters
+    with st.expander("Show Filters", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            search_text = st.text_input("Search", placeholder="Search in any column...")
+            if search_text:
+                mask = df.apply(lambda x: x.str.contains(search_text, case=False, na=False)).any(axis=1)
+                df = df[mask]
+        
+        with col2:
+            filter_column = st.selectbox("Filter by column", ["None"] + list(df.columns))
+            if filter_column != "None":
+                unique_values = sorted(df[filter_column].unique().tolist())
+                selected_values = st.multiselect(
+                    f"Select {filter_column} values",
+                    unique_values,
+                    default=unique_values
+                )
+                if selected_values:
+                    df = df[df[filter_column].isin(selected_values)]
+        
+        with col3:
+            sort_column = st.selectbox("Sort by", ["None"] + list(df.columns))
+            if sort_column != "None":
+                sort_order = st.radio("Sort order", ["Ascending", "Descending"])
+                df = df.sort_values(by=sort_column, ascending=(sort_order == "Ascending"))
+
+    # Add new row button
+    if st.button("Add New Row"):
+        new_row = pd.DataFrame([['' for _ in df.columns]], columns=df.columns)
+        df = pd.concat([df, new_row], ignore_index=True)
+
+    # Display editor with multiline support
+    edited_df = st.data_editor(
+        df,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config=column_config,
+        hide_index=True,
+        height=min(800, len(df) * 50 + 100),  # Adjust height based on content
+        key=f"editor_{sheet}"
+    )
+
+    # Remove empty rows before saving
+    edited_df = edited_df.loc[edited_df.replace('', np.nan).notna().any(axis=1)].copy()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Save Changes"):
+            try:
+                import os
+                file_path = 'attendance.xlsx'
+                
+                # Check if file is writable
+                if not os.access(file_path, os.W_OK):
+                    st.error("Cannot write to file. Please check file permissions.")
+                    return
+                
+                # Check if file is locked
+                try:
+                    with open(file_path, 'a') as f:
+                        pass
+                except IOError:
+                    st.error("File is locked. Please close it in other programs and try again.")
+                    return
+                
+                with pd.ExcelWriter(
+                    file_path, 
+                    mode='a', 
+                    engine='openpyxl',
+                    if_sheet_exists='overlay'
+                ) as writer:
+                    edited_df.to_excel(writer, sheet_name=sheet, index=False)
+                    
+                    worksheet = writer.sheets[sheet]
+                    
+                    # Format cells for multiline
+                    for row in worksheet.iter_rows():
+                        for cell in row:
+                            cell.alignment = openpyxl.styles.Alignment(
+                                wrap_text=True,
+                                vertical='top'
+                            )
+                            
+                            # Set row height based on content
+                            if cell.value:
+                                lines = str(cell.value).count('\n') + 1
+                                current_height = worksheet.row_dimensions[cell.row].height or 15
+                                worksheet.row_dimensions[cell.row].height = max(current_height, lines * 15)
+                    
+                    # Set column widths
+                    for column in worksheet.columns:
+                        max_length = 0
+                        column_letter = openpyxl.utils.get_column_letter(column[0].column)
+                        for cell in column:
+                            if cell.value:
+                                max_length = max(max_length, max(len(line) for line in str(cell.value).split('\n')))
+                        adjusted_width = min(50, max(12, max_length + 2))
+                        worksheet.column_dimensions[column_letter].width = adjusted_width
+                
+                st.success("Changes saved successfully!")
+                st.rerun()
+            except PermissionError:
+                st.error("Cannot save changes. Please check if the file is open in another program.")
+            except Exception as e:
+                st.error(f"Error saving changes: {str(e)}")
+                st.info("Try closing the Excel file if it's open in another program.")
+
 
 def main():
     if 'logged_in' not in st.session_state:
