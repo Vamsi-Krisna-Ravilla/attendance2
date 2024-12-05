@@ -15,6 +15,19 @@ ADMIN_CREDENTIALS = {
     "a": hashlib.sha256("a".encode()).hexdigest()
 }
 
+def check_login(username, password, is_admin=False):
+    """Verify login credentials"""
+    try:
+        if is_admin:
+            hashed_password = hashlib.sha256(password.encode()).hexdigest()
+            return ADMIN_CREDENTIALS.get(username) == hashed_password
+        else:
+            df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+            return any((df_faculty['Faculty Name'] == username) & 
+                      (df_faculty['Password'] == password))
+    except Exception as e:
+        st.error(f"Login error: {str(e)}")
+        return False
 
 def get_section_subjects(section):
     """Get subjects mapped to a specific section"""
@@ -164,21 +177,171 @@ def update_faculty_log(faculty_name, section, period, subject):
         st.error(f"Error updating faculty log: {str(e)}")
         return False
 
+def get_faculty_workload(username):
+    """Calculate faculty workload and organize by months"""
+    try:
+        # Get faculty sheet data
+        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+        faculty_row = df_faculty[df_faculty['Faculty Name'] == username]
+        
+        if not faculty_row.empty:
+            workload_data = []
+            
+            # Process each month column
+            for col in faculty_row.columns:
+                if col not in ['Faculty Name', 'Password']:
+                    entries = str(faculty_row[col].iloc[0]).split('\n') if pd.notna(faculty_row[col].iloc[0]) else []
+                    
+                    for entry in entries:
+                        if entry.strip():  # Only process non-empty entries
+                            try:
+                                # Parse the entry: DD/MM/YYYY_HH:MM[AM/PM]_P2_BCME_B.Tech-I-CSE-A
+                                parts = entry.strip().split('_')
+                                if len(parts) >= 5:
+                                    date_str = parts[0]
+                                    time_str = parts[1]
+                                    period = parts[2]
+                                    subject = parts[3]
+                                    section = parts[4]
+                                    
+                                    workload_data.append({
+                                        'Date': date_str,
+                                        'Time': time_str,
+                                        'Period': period,
+                                        'Section': section,
+                                        'Subject': subject
+                                    })
+                            except Exception as e:
+                                st.error(f"Error processing entry: {entry}, Error: {str(e)}")
+                                continue
+            
+            # Convert to DataFrame
+            df_workload = pd.DataFrame(workload_data)
+            
+            if not df_workload.empty:
+                # Convert Date column to datetime for filtering
+                df_workload['DateObj'] = pd.to_datetime(df_workload['Date'], format='%d/%m/%Y')
+                
+                # Filter based on date range if provided
+                if 'from_date' in st.session_state and 'to_date' in st.session_state:
+                    from_date = pd.to_datetime(st.session_state.from_date)
+                    to_date = pd.to_datetime(st.session_state.to_date)
+                    
+                    # Filter using DateObj column
+                    df_workload = df_workload[
+                        (df_workload['DateObj'] >= from_date) & 
+                        (df_workload['DateObj'] <= to_date)
+                    ]
+                
+                if not df_workload.empty:
+                    # Add Month column for grouping
+                    df_workload['Month'] = df_workload['DateObj'].dt.strftime('%b%Y')
+                    # Sort by date
+                    df_workload = df_workload.sort_values('DateObj')
+                    # Drop the DateObj column as it's no longer needed
+                    df_workload = df_workload.drop('DateObj', axis=1)
+                    
+                    return len(df_workload), df_workload
+            
+        return 0, pd.DataFrame()
+    
+    except Exception as e:
+        st.error(f"Error calculating workload: {str(e)}")
+        return 0, pd.DataFrame()
 
+def workload_analysis_page():
+    """Page for viewing faculty workload"""
+    st.subheader("My Workload Analysis")
+    
+    # Date range selection
+    col1, col2 = st.columns(2)
+    with col1:
+        st.session_state.from_date = st.date_input(
+            "From Date",
+            datetime.now().replace(day=1),
+            format="YYYY/MM/DD"
+        )
+    with col2:
+        st.session_state.to_date = st.date_input(
+            "To Date",
+            datetime.now(),
+            format="YYYY/MM/DD"
+        )
+    
+    # Get workload data
+    total_periods, workload_df = get_faculty_workload(st.session_state.username)
+    
+    if not workload_df.empty:
+        # Summary metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Classes", total_periods)
+        with col2:
+            unique_days = workload_df['Date'].nunique()
+            st.metric("Days Engaged", unique_days)
+        with col3:
+            avg_classes = total_periods / max(unique_days, 1)
+            st.metric("Daily Average", f"{avg_classes:.1f}")
+        
+        # Show section and subject breakdown
+        st.subheader("Teaching Distribution")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("##### Subject-wise Classes")
+            subject_counts = workload_df['Subject'].value_counts().reset_index()
+            subject_counts.columns = ['Subject', 'Classes']
+            st.dataframe(subject_counts, hide_index=True)
+            
+        with col2:
+            st.write("##### Section-wise Classes")
+            section_counts = workload_df['Section'].value_counts().reset_index()
+            section_counts.columns = ['Section', 'Classes']
+            st.dataframe(section_counts, hide_index=True)
+        
+        # Detailed records grouped by month
+        st.subheader("Detailed Class Records")
+        for month in workload_df['Month'].unique():
+            with st.expander(f"### {month}"):
+                month_data = workload_df[workload_df['Month'] == month].copy()
+                month_data = month_data.drop('Month', axis=1)
+                st.dataframe(
+                    month_data.sort_values('Date'),
+                    column_config={
+                        'Date': st.column_config.TextColumn('Date', width=100),
+                        'Time': st.column_config.TextColumn('Time', width=100),
+                        'Period': st.column_config.TextColumn('Period', width=80),
+                        'Section': st.column_config.TextColumn('Section', width=150),
+                        'Subject': st.column_config.TextColumn('Subject', width=150)
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+    else:
+        st.info("No classes recorded in the selected date range")  
+  
+def create_template_df(sheet_name):
+    """Create template DataFrame based on sheet type with updated Faculty template"""
+    if sheet_name == 'Faculty':
+        # Get current month-year
+        current_month = datetime.now().strftime('%b%Y')
+        return pd.DataFrame(columns=['Faculty Name', 'Password', current_month])
+    elif sheet_name == 'Section-Subject-Mapping':
+        return pd.DataFrame(columns=['Section', 'Subject Names'])
+    elif sheet_name.startswith('(O)'):
+        return pd.DataFrame(columns=['HT Number', 'Student Name', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6'])
+    else:  # Manipulated sections
+        return pd.DataFrame(columns=['HT Number', 'Student Name', 'Original Section'])
 
-def mark_attendance(section, period, attendance_data, username, subject):
+def mark_attendance(section, period, attendance_data, faculty_name, subject):
     """Modified mark_attendance function to update faculty log"""
     try:
-        # First get faculty name from username
-        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-        faculty_row = df_faculty[df_faculty['Username'] == username].iloc[0]
-        faculty_name = faculty_row['Faculty Name']  # Use full faculty name
-        
         date_str = datetime.now().strftime('%d/%m/%Y')
         time_str = datetime.now().strftime('%I:%M%p')
+        
         unsuccessful_records = []
         
-        # Rest of marking attendance code...
+        # Group students by their original sections
         original_sections = {}
         for ht_number, data in attendance_data.items():
             orig_section = data['original_section'].replace("Original: ", "")
@@ -186,6 +349,7 @@ def mark_attendance(section, period, attendance_data, username, subject):
                 original_sections[orig_section] = {}
             original_sections[orig_section][ht_number] = data['status']
         
+        # Mark attendance in each original section
         success = True
         for orig_section, students in original_sections.items():
             try:
@@ -206,7 +370,6 @@ def mark_attendance(section, period, attendance_data, username, subject):
                                 })
                                 continue
                             
-                            # Use faculty_name here instead of username
                             attendance_value = f"{date_str}_{time_str}_{status}_{faculty_name}_{subject}"
                             current_value = df.loc[row_mask, period].iloc[0]
                             df.loc[row_mask, period] = (
@@ -246,13 +409,12 @@ def mark_attendance(section, period, attendance_data, username, subject):
         
         # Update faculty log if attendance marking was successful
         if success:
-            update_faculty_log(faculty_name, section, period, subject)  # Use faculty_name here too
+            update_faculty_log(faculty_name, section, period, subject)
         
         return success, unsuccessful_records
     
     except Exception as e:
         return False, []
-
 
 def get_student_data(section):
     """Get student data for a manipulated section"""
@@ -268,6 +430,68 @@ def get_student_data(section):
         st.error(f"Error getting student data: {str(e)}")
         return None
 
+def faculty_page():
+    st.title(f"Welcome, {st.session_state.username}")
+    
+    with st.sidebar:
+        st.header("Navigation")
+        page = st.radio(
+            "Select", 
+            ["Mark Attendance", "View Statistics", "Student Reports", 
+             "Subject Analysis", "My Workload"]
+        )
+
+        if page == "Mark Attendance":
+            # Period selection
+            st.session_state.period = st.selectbox(
+                "Select Period",
+                options=[''] + ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+            )
+            
+            # Section selection - only manipulated sections for attendance
+            sections = get_sections(for_attendance=True)
+            st.session_state.sections = st.multiselect(
+                "Select Section(s)",
+                options=sections,
+                max_selections=2,
+                help="Select up to 2 sections"
+            )
+            
+            # Show available subjects for selected section
+            if st.session_state.sections:
+                all_subjects = []
+                for section in st.session_state.sections:
+                    subjects = get_section_subjects(section)
+                    all_subjects.extend(subjects)
+                # Remove duplicates and sort
+                unique_subjects = sorted(list(set(all_subjects)))
+                
+                st.session_state.subject = st.selectbox(
+                    "Select Subject",
+                    options=unique_subjects if unique_subjects else [''],
+                    help="Select the subject being taught"
+                )
+        
+        if st.button("Logout"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+    if page == "Mark Attendance":
+        if not (st.session_state.get('period') and st.session_state.get('sections') 
+                and st.session_state.get('subject')):
+            st.info("Please select Period, Section(s), and Subject from the sidebar")
+            return
+            
+        mark_attendance_page()
+    elif page == "View Statistics":
+        view_statistics_page()
+    elif page == "Student Reports":
+        student_reports_page()
+    elif page == "Subject Analysis":
+        subject_analysis_page()
+    else:  # Workload Analysis
+        workload_analysis_page()
 
 
 
@@ -1041,484 +1265,27 @@ def show_bulk_upload(sheet):
             st.error(f"Error processing file: {str(e)}")
 
 
-def create_template_df(sheet_name):
-    """Create template DataFrame based on sheet type with updated Faculty template"""
-    if sheet_name == 'Faculty':
-        # Get current month-year
-        current_month = datetime.now().strftime('%b%Y')
-        return pd.DataFrame(columns=['Faculty Name', 'Username', 'Password', current_month])
-    elif sheet_name == 'Section-Subject-Mapping':
-        return pd.DataFrame(columns=['Section', 'Subject Names'])
-    elif sheet_name.startswith('(O)'):
-        return pd.DataFrame(columns=['HT Number', 'Student Name', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6'])
-    else:  # Manipulated sections
-        return pd.DataFrame(columns=['HT Number', 'Student Name', 'Original Section'])
-
-def get_faculty_id(faculty_name):
-    """Extract RVIT ID from faculty name"""
-    if '(' in faculty_name and ')' in faculty_name:
-        return faculty_name[faculty_name.index('(')+1:faculty_name.index(')')]
-    return None
-
-def check_login(username, password, is_admin=False):
-    """Verify login credentials"""
-    try:
-        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-        if is_admin:
-            # Check admin credentials
-            return any((df_faculty['Username'] == username) & 
-                      (df_faculty['Password'] == password) &
-                      (df_faculty['Faculty Name'].str.contains('admin', case=False)))
-        else:
-            # Check faculty credentials
-            return any((df_faculty['Username'] == username) & 
-                      (df_faculty['Password'] == password))
-    except Exception as e:
-        st.error(f"Login error: {str(e)}")
-        return False
-
-def faculty_page():
-    # Get faculty full name from session state
-    faculty_name = st.session_state.faculty_name
-    
-    # Use faculty name for welcome message
-    st.title(f"Welcome, {faculty_name}")
-    
-    with st.sidebar:
-        st.header("Navigation")
-        page = st.radio(
-            "Select", 
-            ["Mark Attendance", "View Statistics", "Student Reports", 
-             "Subject Analysis", "My Workload"]
-        )
-
-        if page == "Mark Attendance":
-            # Period selection
-            st.session_state.period = st.selectbox(
-                "Select Period",
-                options=[''] + ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'],
-                key="period_select"
-            )
-            
-            # Section selection - only manipulated sections for attendance
-            sections = get_sections(for_attendance=True)
-            st.session_state.sections = st.multiselect(
-                "Select Section(s)",
-                options=sections,
-                max_selections=2,
-                help="Select up to 2 sections",
-                key="section_select"
-            )
-            
-            # Show available subjects for selected section
-            if st.session_state.sections:
-                all_subjects = []
-                for section in st.session_state.sections:
-                    subjects = get_section_subjects(section)
-                    all_subjects.extend(subjects)
-                # Remove duplicates and sort
-                unique_subjects = sorted(list(set(all_subjects)))
-                
-                st.session_state.subject = st.selectbox(
-                    "Select Subject",
-                    options=unique_subjects if unique_subjects else [''],
-                    help="Select the subject being taught",
-                    key="subject_select"
-                )
-        
-        if st.button("Logout", key="logout_button"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-
-    # Page content based on selection
-    if page == "Mark Attendance":
-        if not (st.session_state.get('period') and st.session_state.get('sections') 
-                and st.session_state.get('subject')):
-            st.info("Please select Period, Section(s), and Subject from the sidebar")
-            return
-        mark_attendance_page()
-    elif page == "View Statistics":
-        view_statistics_page()
-    elif page == "Student Reports":
-        student_reports_page()
-    elif page == "Subject Analysis":
-        subject_analysis_page()
-    else:  # My Workload
-        workload_analysis_page()
-
-def get_faculty_workload(username):
-    """Calculate faculty workload and organize by months"""
-    try:
-        # Get faculty sheet data
-        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-        
-        # Get faculty name for workload lookup
-        user_mask = df_faculty['Username'] == username
-        if not user_mask.any():
-            return 0, pd.DataFrame()
-            
-        workload_data = []
-        
-        # Process each month column
-        for col in df_faculty.columns:
-            if col not in ['Faculty Name', 'Username', 'Password']:
-                # Get entries for this month
-                entries = str(df_faculty.loc[user_mask, col].iloc[0]).split('\n') if pd.notna(df_faculty.loc[user_mask, col].iloc[0]) else []
-                
-                for entry in entries:
-                    if pd.notna(entry) and entry.strip():
-                        try:
-                            parts = entry.strip().split('_')
-                            if len(parts) >= 5:  # Ensure we have all required parts
-                                date_str = parts[0]
-                                time_str = parts[1]
-                                period = parts[2]
-                                subject = parts[3]
-                                section = "_".join(parts[4:])  # Handle sections with underscores in name
-                                
-                                # Convert date for filtering
-                                date_obj = pd.to_datetime(date_str, format='%d/%m/%Y')
-                                
-                                # Check date range if provided
-                                if 'from_date' in st.session_state and 'to_date' in st.session_state:
-                                    from_date = pd.to_datetime(st.session_state.from_date)
-                                    to_date = pd.to_datetime(st.session_state.to_date)
-                                    if not (from_date <= date_obj <= to_date + pd.Timedelta(days=1)):
-                                        continue
-                                        
-                                workload_data.append({
-                                    'Date': date_str,
-                                    'Time': time_str,
-                                    'Period': period,
-                                    'Subject': subject,
-                                    'Section': section
-                                })
-                        except Exception as e:
-                            st.error(f"Error processing entry: {entry}")
-                            continue
-        
-        if workload_data:
-            # Convert to DataFrame and add Month column
-            df_workload = pd.DataFrame(workload_data)
-            df_workload['DateObj'] = pd.to_datetime(df_workload['Date'], format='%d/%m/%Y')
-            df_workload['Month'] = df_workload['DateObj'].dt.strftime('%b%Y')
-            
-            # Sort by date
-            df_workload = df_workload.sort_values('DateObj', ascending=False)
-            
-            # Remove DateObj column
-            df_workload = df_workload.drop('DateObj', axis=1)
-            
-            return len(df_workload), df_workload
-            
-        return 0, pd.DataFrame()
-        
-    except Exception as e:
-        st.error(f"Error calculating workload: {str(e)}")
-        return 0, pd.DataFrame()
-
-def workload_analysis_page():
-    """Page for viewing faculty workload"""
-    st.subheader("My Workload Analysis")
-    
-    # Date range selection
-    col1, col2 = st.columns(2)
-    with col1:
-        st.session_state.from_date = st.date_input(
-            "From Date",
-            datetime.now().replace(day=1),
-            format="YYYY/MM/DD"
-        )
-    with col2:
-        st.session_state.to_date = st.date_input(
-            "To Date",
-            datetime.now(),
-            format="YYYY/MM/DD"
-        )
-    
-    # Get workload data
-    total_periods, workload_df = get_faculty_workload(st.session_state.username)
-    
-    if not workload_df.empty:
-        # Summary metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Classes", total_periods)
-        with col2:
-            unique_days = workload_df['Date'].nunique()
-            st.metric("Days Engaged", unique_days)
-        with col3:
-            avg_classes = total_periods / max(unique_days, 1)
-            st.metric("Daily Average", f"{avg_classes:.1f}")
-        
-        # Show section and subject breakdown
-        st.subheader("Teaching Distribution")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("##### Subject-wise Classes")
-            subject_counts = workload_df['Subject'].value_counts().reset_index()
-            subject_counts.columns = ['Subject', 'Classes']
-            st.dataframe(subject_counts, hide_index=True)
-            
-        with col2:
-            st.write("##### Section-wise Classes")
-            section_counts = workload_df['Section'].value_counts().reset_index()
-            section_counts.columns = ['Section', 'Classes']
-            st.dataframe(section_counts, hide_index=True)
-        
-        # Detailed records grouped by month
-        st.subheader("Detailed Class Records")
-        for month in sorted(workload_df['Month'].unique(), reverse=True):
-            with st.expander(f"### {month}"):
-                month_data = workload_df[workload_df['Month'] == month].copy()
-                month_data = month_data.drop('Month', axis=1)
-                st.dataframe(
-                    month_data,
-                    column_config={
-                        'Date': st.column_config.TextColumn('Date', width=100),
-                        'Time': st.column_config.TextColumn('Time', width=100),
-                        'Period': st.column_config.TextColumn('Period', width=80),
-                        'Section': st.column_config.TextColumn('Section', width=150),
-                        'Subject': st.column_config.TextColumn('Subject', width=150)
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
-                
-                # Add download option for this month's data
-                csv = month_data.to_csv(index=False)
-                st.download_button(
-                    label=f"Download {month} Records",
-                    data=csv,
-                    file_name=f"workload_{month}_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
-    else:
-        st.info("No classes recorded in the selected date range")
-
-
-def mark_attendance(section, period, attendance_data, username, subject):
-    """Modified mark_attendance function to update faculty log with proper name"""
-    try:
-        # First get faculty name from username
-        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-        user_row = df_faculty[df_faculty['Username'] == username].iloc[0]
-        faculty_name = user_row['Faculty Name']  # This will get the full name with RVIT ID
-        
-        date_str = datetime.now().strftime('%d/%m/%Y')
-        time_str = datetime.now().strftime('%I:%M%p')
-        
-        unsuccessful_records = []
-        
-        # Rest of the code remains the same...
-        original_sections = {}
-        for ht_number, data in attendance_data.items():
-            orig_section = data['original_section'].replace("Original: ", "")
-            if orig_section not in original_sections:
-                original_sections[orig_section] = {}
-            original_sections[orig_section][ht_number] = data['status']
-        
-        success = True
-        for orig_section, students in original_sections.items():
-            try:
-                df = pd.read_excel('attendance.xlsx', sheet_name=orig_section)
-                
-                with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay', engine='openpyxl') as writer:
-                    for ht_number, status in students.items():
-                        try:
-                            row_mask = df['HT Number'] == ht_number
-                            if not row_mask.any():
-                                student_df = pd.read_excel('attendance.xlsx', sheet_name=section)
-                                student_name = student_df[student_df['HT Number'] == ht_number]['Student Name'].iloc[0]
-                                unsuccessful_records.append({
-                                    'HT Number': ht_number,
-                                    'Student Name': student_name,
-                                    'Original Section': orig_section,
-                                    'Reason': f"Student not found in section {orig_section}"
-                                })
-                                continue
-                            
-                            attendance_value = f"{date_str}_{time_str}_{status}_{faculty_name}_{subject}"
-                            current_value = df.loc[row_mask, period].iloc[0]
-                            df.loc[row_mask, period] = (
-                                f"{current_value}\n{attendance_value}" if pd.notna(current_value) and current_value 
-                                else attendance_value
-                            )
-                            
-                        except Exception as e:
-                            unsuccessful_records.append({
-                                'HT Number': ht_number,
-                                'Student Name': "Unknown",
-                                'Original Section': orig_section,
-                                'Reason': "Unable to process attendance"
-                            })
-                    
-                    df.to_excel(writer, sheet_name=orig_section, index=False)
-                    
-                    # Format worksheet
-                    worksheet = writer.sheets[orig_section]
-                    for row in worksheet.iter_rows():
-                        for cell in row:
-                            cell.alignment = Alignment(wrap_text=True, vertical='top')
-                    
-                    for column in worksheet.columns:
-                        max_length = max(len(str(cell.value or '')) for cell in column)
-                        worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
-                
-            except Exception as e:
-                success = False
-                for ht_number in students.keys():
-                    unsuccessful_records.append({
-                        'HT Number': ht_number,
-                        'Student Name': "Unknown",
-                        'Original Section': orig_section,
-                        'Reason': "Section access issue"
-                    })
-        
-        # Update faculty log if attendance marking was successful
-        if success:
-            update_faculty_log(faculty_name, section, period, subject)
-        
-        return success, unsuccessful_records
-    
-    except Exception as e:
-        st.error(f"Error marking attendance: {str(e)}")
-        return False, []
-
-
-def reset_password():
-    st.subheader("Reset Password")
-    
-    username = st.text_input("Username", key="reset_pwd_username")
-    if username:
-        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-        user_mask = df_faculty['Username'] == username
-        
-        if not user_mask.any():
-            st.error("Username not found")
-            return
-            
-        current_password = st.text_input("Current Password", type="password", key="reset_pwd_current")
-        if current_password:
-            user_row = df_faculty[user_mask].iloc[0]
-            if user_row['Password'] != current_password:
-                st.error("Current password is incorrect")
-                return
-                
-            new_password = st.text_input("New Password", type="password", key="reset_pwd_new")
-            confirm_password = st.text_input("Confirm New Password", type="password", key="reset_pwd_confirm")
-            
-            if st.button("Reset Password", type="primary"):
-                if new_password != confirm_password:
-                    st.error("New passwords do not match")
-                    return
-                    
-                df_faculty.loc[user_mask, 'Password'] = new_password
-                with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay') as writer:
-                    df_faculty.to_excel(writer, sheet_name='Faculty', index=False)
-                    
-                st.success("Password updated successfully!")
-                time.sleep(1)
-                st.session_state.clear()
-                st.rerun()
-
-def reset_username():
-    """Function to handle username reset"""
-    st.subheader("Reset Username")
-    
-    current_username = st.text_input("Current Username", key="reset_user_current")
-    password = st.text_input("Current Password", type="password", key="reset_user_pwd")
-    new_username = st.text_input("New Username", key="reset_user_new")
-    
-    if st.button("Reset Username", key="reset_user_button", type="primary"):
-        try:
-            if not all([current_username, password, new_username]):
-                st.error("All fields are required")
-                return
-                
-            # Read faculty data
-            df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-            
-            # Verify credentials
-            user_mask = (df_faculty['Username'] == current_username) & \
-                       (df_faculty['Password'] == password)
-            if not user_mask.any():
-                st.error("Invalid credentials")
-                return
-                
-            # Check if new username already exists
-            if (df_faculty['Username'] == new_username).any():
-                st.error("Username already exists")
-                return
-                
-            # Update username
-            df_faculty.loc[user_mask, 'Username'] = new_username
-            
-            # Save changes while preserving all columns
-            with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay') as writer:
-                df_faculty.to_excel(writer, sheet_name='Faculty', index=False)
-                
-                # Format worksheet
-                worksheet = writer.sheets['Faculty']
-                for row in worksheet.iter_rows():
-                    for cell in row:
-                        cell.alignment = Alignment(wrap_text=True, vertical='top')
-                
-                # Set column widths
-                for column in worksheet.columns:
-                    max_length = max(len(str(cell.value or '')) for cell in column)
-                    worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
-            
-            st.success("Username updated successfully! Please login again with your new username.")
-            
-            # Clear session state to force re-login
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"Error resetting username: {str(e)}")
-
 def main():
     if 'logged_in' not in st.session_state:
         st.title("Login")
         
-        # Add tabs for login and reset options
-        tab1, tab2, tab3 = st.tabs(["Login", "Reset Password", "Reset Username"])
+        login_type = st.radio("Select Login Type", ["Faculty", "Admin"])
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
         
-        with tab1:
-            login_type = st.radio("Select Login Type", ["Faculty", "Admin"], key="login_type")
-            username = st.text_input("Username", key="login_username")
-            password = st.text_input("Password", type="password", key="login_password")
-            
-            if st.button("Login", key="login_button", type="primary"):
-                if check_login(username, password, login_type == "Admin"):
-                    st.session_state.logged_in = True
-                    st.session_state.is_admin = (login_type == "Admin")
-                    st.session_state.username = username
-                    
-                    # Get faculty name for display
-                    df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-                    user_row = df_faculty[df_faculty['Username'] == username].iloc[0]
-                    st.session_state.faculty_name = user_row['Faculty Name']
-                    
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
-        
-        with tab2:
-            reset_password()
-            
-        with tab3:
-            reset_username()
+        if st.button("Login"):
+            if check_login(username, password, login_type == "Admin"):
+                st.session_state.logged_in = True
+                st.session_state.is_admin = (login_type == "Admin")
+                st.session_state.username = username
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
     else:
         if st.session_state.is_admin:
             admin_page()
         else:
             faculty_page()
-
 
 if __name__ == "__main__":
     main()
