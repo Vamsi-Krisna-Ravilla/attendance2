@@ -16,36 +16,7 @@ ADMIN_CREDENTIALS = {
 }
 
 
-def get_section_subjects(section):
-    """Get subjects mapped to a specific section"""
-    try:
-        df_mapping = pd.read_excel('attendance.xlsx', sheet_name='Section-Subject-Mapping')
-        section_row = df_mapping[df_mapping['Section'] == section].iloc[0]
-        subjects = [s.strip() for s in str(section_row['Subject Names']).split('\n') if s.strip()]
-        return subjects
-    except Exception as e:
-        st.error(f"Error getting subjects: {str(e)}")
-        return []
 
-def get_sections(for_attendance=False):
-    """
-    Get sections based on context
-    for_attendance=True: Returns only manipulated sections (without O prefix)
-    for_attendance=False: Returns original sections (with O prefix)
-    """
-    try:
-        all_sheets = pd.ExcelFile('attendance.xlsx').sheet_names
-        if for_attendance:
-            # For attendance marking: Only show manipulated sections
-            return [s for s in all_sheets if not s.startswith('(O)') 
-                   and s not in ['Faculty', 'Section-Subject-Mapping']]
-        else:
-            # For other features: Show original sections
-            return [s.replace('(O)', '') for s in all_sheets 
-                   if s.startswith('(O)')]
-    except Exception as e:
-        st.error(f"Error getting sections: {str(e)}")
-        return []
 
 
 def mark_attendance_page():
@@ -271,92 +242,6 @@ def get_student_data(section):
 
 
 
-
-
-def subject_analysis_page():
-    """Page for subject-wise analysis"""
-    st.subheader("Subject-wise Analysis")
-    
-    # Use original sections for analysis
-    sections = get_sections(for_attendance=False)
-    section = st.selectbox("Select Section", sections)
-    
-    if section:
-        subjects = get_section_subjects(section)
-        subject = st.selectbox("Select Subject", subjects)
-        
-        if subject:
-            analysis_df = get_subject_analysis(section, subject)
-            if not analysis_df.empty:
-                st.write("### Subject Statistics")
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    avg_attendance = analysis_df['Attendance %'].mean()
-                    st.metric("Average Attendance", f"{avg_attendance:.2f}%")
-                with col2:
-                    total_classes = analysis_df['Total Classes'].max()
-                    st.metric("Total Classes", total_classes)
-                with col3:
-                    below_75 = len(analysis_df[analysis_df['Attendance %'] < 75])
-                    st.metric("Students Below 75%", below_75)
-                
-                st.write("### Student-wise Analysis")
-                st.dataframe(analysis_df)
-                
-                if st.button("Download Analysis"):
-                    csv = analysis_df.to_csv(index=False)
-                    st.download_button(
-                        label="Download CSV",
-                        data=csv,
-                        file_name=f"subject_analysis_{section}_{subject}_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-            else:
-                st.info("No data available for analysis")
-
-def student_reports_page():
-    """Page for individual student reports"""
-    st.subheader("Individual Student Reports")
-    
-    # Use original sections for reports
-    sections = get_sections(for_attendance=False)
-    section = st.selectbox("Select Section", sections)
-    
-    if section:
-        df_students = get_student_data(section)
-        if df_students is not None:
-            student = st.selectbox(
-                "Select Student", 
-                df_students['HT Number'].tolist(),
-                format_func=lambda x: f"{x} - {df_students[df_students['HT Number']==x]['Student Name'].iloc[0]}"
-            )
-            
-            if student:
-                student_data = df_students[df_students['HT Number'] == student].iloc[0]
-                
-                st.write(f"### Attendance Report for {student}")
-                st.write(f"**Name:** {student_data['Student Name']}")
-                st.write(f"**Original Section:** {student_data['Original Section']}")
-                
-                # Get attendance details
-                attendance_data = get_student_attendance_details(student_data['Original Section'].replace("Original: ", ""), student)
-                
-                # Properly check if attendance data exists and is not empty
-                if attendance_data is not None and not attendance_data.empty:
-                    st.dataframe(attendance_data.sort_values('Date', ascending=False))
-                    
-                    if st.button("Download Student Report"):
-                        csv = attendance_data.to_csv(index=False)
-                        st.download_button(
-                            label="Download CSV",
-                            data=csv,
-                            file_name=f"student_report_{student}_{datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
-                        )
-                else:
-                    st.info("No attendance records found")
-
 def get_student_attendance_details(section, student_id):
     """Get detailed attendance records for a student"""
     try:
@@ -398,43 +283,6 @@ def get_student_attendance_details(section, student_id):
         return None
 
 
-def get_subject_analysis(section, subject):
-    """Get subject-wise attendance analysis"""
-    try:
-        df = pd.read_excel('attendance.xlsx', sheet_name=f'(O){section}')
-        analysis = []
-        
-        for _, row in df.iterrows():
-            present = 0
-            total = 0
-            
-            for period in ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']:
-                if pd.notna(row[period]) and row[period]:
-                    entries = str(row[period]).split('\n')
-                    for entry in entries:
-                        if subject in entry:
-                            total += 1
-                            if '_P_' in entry:
-                                present += 1
-            
-            if total > 0:
-                percentage = (present / total) * 100
-            else:
-                percentage = 0
-                
-            analysis.append({
-                'HT Number': row['HT Number'],
-                'Student Name': row['Student Name'],
-                'Classes Attended': present,
-                'Total Classes': total,
-                'Attendance %': round(percentage, 2)
-            })
-        
-        return pd.DataFrame(analysis)
-    except Exception as e:
-        st.error(f"Error in subject analysis: {str(e)}")
-        return pd.DataFrame()
-
 
 
 
@@ -454,17 +302,105 @@ def check_duplicate_attendance(section, period, date_str):
 
 
 
+
+def get_sections(for_attendance=False):
+    """
+    Get sections based on context
+    for_attendance=True: Returns only manipulated sections (without O prefix)
+    for_attendance=False: Returns original sections with (O) prefix intact
+    """
+    try:
+        all_sheets = pd.ExcelFile('attendance.xlsx').sheet_names
+        if for_attendance:
+            # For attendance marking: Only show manipulated sections
+            return [s for s in all_sheets if not s.startswith('(O)') 
+                   and s not in ['Faculty', 'Section-Subject-Mapping']]
+        else:
+            # For other features: Show original sections with (O) prefix
+            return [s for s in all_sheets 
+                   if s.startswith('(O)') and s not in ['Faculty', 'Section-Subject-Mapping']]
+    except Exception as e:
+        st.error(f"Error getting sections: {str(e)}")
+        return []
+
+def student_reports_page():
+    """Page for individual student reports with multi-select sections"""
+    st.subheader("Individual Student Reports")
+    
+    # Use original sections with (O) prefix for reports
+    sections = get_sections(for_attendance=False)
+    selected_sections = st.multiselect("Select Sections", options=sections)
+    
+    if selected_sections:
+        all_students = []
+        for section in selected_sections:
+            try:
+                df = pd.read_excel('attendance.xlsx', sheet_name=section)
+                df['Section'] = section  # Add section column
+                all_students.append(df[['HT Number', 'Student Name', 'Section']])
+            except Exception as e:
+                st.error(f"Error reading section {section}: {str(e)}")
+                continue
+        
+        if all_students:
+            df_students = pd.concat(all_students, ignore_index=True)
+            student = st.selectbox(
+                "Select Student", 
+                df_students['HT Number'].tolist(),
+                format_func=lambda x: f"{x} - {df_students[df_students['HT Number']==x]['Student Name'].iloc[0]} ({df_students[df_students['HT Number']==x]['Section'].iloc[0]})"
+            )
+            
+            if student:
+                student_data = df_students[df_students['HT Number'] == student].iloc[0]
+                
+                st.write(f"### Attendance Report for {student}")
+                st.write(f"**Name:** {student_data['Student Name']}")
+                st.write(f"**Section:** {student_data['Section']}")
+                
+                # Get attendance details
+                attendance_data = get_student_attendance_details(student_data['Section'], student)
+                
+                if attendance_data is not None and not attendance_data.empty:
+                    st.dataframe(attendance_data.sort_values('Date', ascending=False))
+                    
+                    if st.button("Download Student Report"):
+                        csv = attendance_data.to_csv(index=False)
+                        st.download_button(
+                            label="Download CSV",
+                            data=csv,
+                            file_name=f"student_report_{student}_{datetime.now().strftime('%Y%m%d')}.csv",
+                            mime="text/csv"
+                        )
+                else:
+                    st.info("No attendance records found")
+
 def get_attendance_stats(section, from_date=None, to_date=None):
     """Calculate attendance statistics with attended/conducted format"""
     try:
-        df = pd.read_excel('attendance.xlsx', sheet_name=f'(O){section}')
+        # Use the original section name with (O) prefix if not present
+        if not section.startswith('(O)'):
+            section = f"(O){section}"
+
+        df = pd.read_excel('attendance.xlsx', sheet_name=section)
         subjects = get_section_subjects(section)
+        if not subjects:
+            st.error(f"No subjects found for section {section}")
+            return None
+        
+        # Convert date inputs to datetime.date objects if they're strings
+        if isinstance(from_date, str):
+            from_date = datetime.strptime(from_date, '%Y-%m-%d').date()
+        if isinstance(to_date, str):
+            to_date = datetime.strptime(to_date, '%Y-%m-%d').date()
         
         stats = []
         for _, row in df.iterrows():
+            if pd.isna(row['HT Number']) or pd.isna(row['Student Name']):
+                continue
+                
             student_stats = {
-                'HT Number': row['HT Number'],
-                'Student Name': row['Student Name']
+                'HT Number': str(row['HT Number']),
+                'Student Name': str(row['Student Name'])
             }
             
             total_present = 0
@@ -476,29 +412,50 @@ def get_attendance_stats(section, from_date=None, to_date=None):
                 total = 0
                 
                 for period in ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']:
-                    if pd.notna(row[period]) and row[period]:
+                    if pd.notna(row[period]) and str(row[period]).strip():
                         entries = str(row[period]).split('\n')
                         for entry in entries:
-                            if subject in entry:
-                                total += 1
-                                total_classes += 1
-                                if '_P_' in entry:
-                                    present += 1
-                                    total_present += 1
+                            try:
+                                parts = entry.split('_')
+                                if len(parts) >= 5:  # Ensure we have all required parts
+                                    date_str = parts[0]
+                                    entry_date = datetime.strptime(date_str, '%d/%m/%Y').date()
+                                    
+                                    # Check if entry is within date range
+                                    if from_date and to_date:
+                                        if not (from_date <= entry_date <= to_date):
+                                            continue
+                                    
+                                    # Check if this entry is for the current subject
+                                    subject_name = parts[4]  # The subject name should be in this position
+                                    if subject in subject_name:
+                                        total += 1
+                                        total_classes += 1
+                                        if '_P_' in entry:
+                                            present += 1
+                                            total_present += 1
+                            except (ValueError, IndexError) as e:
+                                st.error(f"Error processing entry: {entry}, Error: {str(e)}")
+                                continue
                 
                 # Only add subject column if there are classes for this subject
                 if total > 0:
                     student_stats[f"{subject}\n(Attended/Conducted)"] = f"{present}/{total}"
             
-            # Add total attended/conducted before Overall %
-            student_stats[f"Total\n(Attended/Conducted)"] = f"{total_present}/{total_classes}"
-            
-            # Calculate overall percentage
-            overall_percentage = (total_present / total_classes * 100) if total_classes > 0 else 0
-            student_stats['Overall %'] = round(overall_percentage, 2)
-            
-            stats.append(student_stats)
+            # Only add student stats if they attended any classes
+            if total_classes > 0:
+                # Add total attended/conducted
+                student_stats[f"Total\n(Attended/Conducted)"] = f"{total_present}/{total_classes}"
+                
+                # Calculate overall percentage
+                overall_percentage = (total_present / total_classes * 100) if total_classes > 0 else 0
+                student_stats['Overall %'] = round(overall_percentage, 2)
+                
+                stats.append(student_stats)
         
+        if not stats:
+            return pd.DataFrame()
+            
         # Convert to DataFrame
         stats_df = pd.DataFrame(stats)
         
@@ -516,15 +473,16 @@ def get_attendance_stats(section, from_date=None, to_date=None):
         return stats_df
     except Exception as e:
         st.error(f"Error calculating statistics: {str(e)}")
-        return None
+        return pd.DataFrame()
+
 
 def view_statistics_page():
-    """Page for viewing attendance statistics"""
+    """Page for viewing attendance statistics with multi-select sections"""
     st.subheader("View Attendance Statistics")
     
-    # Get original sections only
+    # Get original sections with (O) prefix
     sections = get_sections(for_attendance=False)
-    section = st.selectbox("Select Section", sections)
+    selected_sections = st.multiselect("Select Sections", options=sections)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -532,30 +490,38 @@ def view_statistics_page():
     with col2:
         to_date = st.date_input("To Date")
     
-    if section:
-        stats_df = get_attendance_stats(
-            section, 
-            from_date.strftime('%Y-%m-%d') if from_date else None,
-            to_date.strftime('%Y-%m-%d') if to_date else None
-        )
+    if selected_sections:
+        all_stats = []
+        for section in selected_sections:
+            stats_df = get_attendance_stats(
+                section, 
+                from_date,
+                to_date
+            )
+            if stats_df is not None and not stats_df.empty:
+                stats_df['Section'] = section
+                all_stats.append(stats_df)
         
-        if stats_df is not None and not stats_df.empty:
+        if all_stats:
+            combined_stats = pd.concat(all_stats, ignore_index=True)
+            
             st.write("### Overall Statistics")
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Total Students", len(stats_df))
+                st.metric("Total Students", len(combined_stats))
             with col2:
-                avg_attendance = stats_df['Overall %'].mean()
+                avg_attendance = combined_stats['Overall %'].mean()
                 st.metric("Average Attendance", f"{avg_attendance:.2f}%")
             with col3:
-                below_75 = len(stats_df[stats_df['Overall %'] < 75])
+                below_75 = len(combined_stats[combined_stats['Overall %'] < 75])
                 st.metric("Students Below 75%", below_75)
             
             # Configure column display
             column_config = {
                 'HT Number': st.column_config.TextColumn('HT Number', width=120),
                 'Student Name': st.column_config.TextColumn('Student Name', width=180),
+                'Section': st.column_config.TextColumn('Section', width=150),
                 'Overall %': st.column_config.NumberColumn(
                     'Overall %',
                     format="%.2f%%",
@@ -564,7 +530,7 @@ def view_statistics_page():
             }
             
             # Add configuration for subject and total columns
-            for col in stats_df.columns:
+            for col in combined_stats.columns:
                 if 'Attended/Conducted' in col:
                     column_config[col] = st.column_config.TextColumn(
                         col,
@@ -573,18 +539,18 @@ def view_statistics_page():
             
             st.write("### Student-wise Statistics")
             st.dataframe(
-                stats_df,
+                combined_stats,
                 column_config=column_config,
                 use_container_width=True,
                 hide_index=True
             )
             
             if st.button("Download Report"):
-                csv = stats_df.to_csv(index=False)
+                csv = combined_stats.to_csv(index=False)
                 st.download_button(
                     label="Download CSV",
                     data=csv,
-                    file_name=f"attendance_stats_{section}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    file_name=f"attendance_stats_combined_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
         else:
@@ -1146,6 +1112,146 @@ def faculty_page():
         subject_analysis_page()
     else:  # My Workload
         workload_analysis_page()
+
+
+
+
+def get_section_subjects(section, for_subject_analysis=False):
+    """
+    Get subjects mapped to a specific section
+    for_subject_analysis=True: Use manipulated section name
+    for_subject_analysis=False: Use original section name with (O) prefix
+    """
+    try:
+        df_mapping = pd.read_excel('attendance.xlsx', sheet_name='Section-Subject-Mapping')
+        
+        # For subject analysis, use the section name as-is (manipulated section)
+        if for_subject_analysis:
+            matching_rows = df_mapping[df_mapping['Section'].str.strip() == section.strip()]
+        else:
+            # For other features, handle original sections with (O) prefix
+            if section.startswith('(O)'):
+                clean_section = section.replace('(O)', '').strip()
+                matching_rows = df_mapping[df_mapping['Section'].str.strip() == clean_section]
+            else:
+                matching_rows = df_mapping[df_mapping['Section'].str.strip() == section.strip()]
+        
+        if matching_rows.empty:
+            st.error(f"No subject mapping found for section: {section}")
+            return []
+            
+        # Get subjects from the first matching row
+        subjects_str = str(matching_rows.iloc[0]['Subject Names'])
+        # Split subjects and clean up
+        subjects = [s.strip() for s in subjects_str.split('\n') if s.strip()]
+        return subjects
+    except Exception as e:
+        st.error(f"Error getting subjects: {str(e)}")
+        return []
+
+def get_subject_analysis(section, subject):
+    """Get subject-wise attendance analysis"""
+    try:
+        # For original section name, check if (O) prefix exists
+        sheet_name = section if section.startswith('(O)') else f'(O){section}'
+        df = pd.read_excel('attendance.xlsx', sheet_name=sheet_name)
+        analysis = []
+        
+        for _, row in df.iterrows():
+            if pd.isna(row['HT Number']) or pd.isna(row['Student Name']):
+                continue
+                
+            present = 0
+            total = 0
+            
+            for period in ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']:
+                if pd.notna(row[period]) and str(row[period]).strip():
+                    entries = str(row[period]).split('\n')
+                    for entry in entries:
+                        if subject in entry:
+                            total += 1
+                            if '_P_' in entry:
+                                present += 1
+            
+            if total > 0:
+                percentage = (present / total) * 100
+            else:
+                percentage = 0
+                
+            analysis.append({
+                'HT Number': str(row['HT Number']),
+                'Student Name': str(row['Student Name']),
+                'Classes Attended': present,
+                'Total Classes': total,
+                'Attendance %': round(percentage, 2)
+            })
+        
+        return pd.DataFrame(analysis)
+    except Exception as e:
+        st.error(f"Error in subject analysis: {str(e)}")
+        return pd.DataFrame()
+
+def subject_analysis_page():
+    """Page for subject-wise analysis"""
+    st.subheader("Subject-wise Analysis")
+    
+    # Use manipulated sections (without O prefix) for subject analysis
+    sections = get_sections(for_attendance=True)  # This gets sections without (O) prefix
+    section = st.selectbox("Select Section", sections)
+    
+    if section:
+        subjects = get_section_subjects(section, for_subject_analysis=True)
+        if subjects:  # Only show subject selection if subjects were found
+            subject = st.selectbox("Select Subject", subjects)
+            
+            if subject:
+                # Find the corresponding original section name
+                original_section = f"(O){section}"
+                try:
+                    analysis_df = get_subject_analysis(original_section, subject)
+                    if not analysis_df.empty:
+                        st.write("### Subject Statistics")
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            avg_attendance = analysis_df['Attendance %'].mean()
+                            st.metric("Average Attendance", f"{avg_attendance:.2f}%")
+                        with col2:
+                            total_classes = analysis_df['Total Classes'].max()
+                            st.metric("Total Classes", total_classes)
+                        with col3:
+                            below_75 = len(analysis_df[analysis_df['Attendance %'] < 75])
+                            st.metric("Students Below 75%", below_75)
+                        
+                        st.write("### Student-wise Analysis")
+                        st.dataframe(
+                            analysis_df.sort_values('Attendance %', ascending=False),
+                            column_config={
+                                'HT Number': st.column_config.TextColumn('HT Number', width=120),
+                                'Student Name': st.column_config.TextColumn('Student Name', width=180),
+                                'Classes Attended': st.column_config.NumberColumn('Classes Attended', width=130),
+                                'Total Classes': st.column_config.NumberColumn('Total Classes', width=120),
+                                'Attendance %': st.column_config.NumberColumn('Attendance %', format="%.2f%%", width=120)
+                            },
+                            hide_index=True,
+                            use_container_width=True
+                        )
+                        
+                        if st.button("Download Analysis"):
+                            csv = analysis_df.to_csv(index=False)
+                            st.download_button(
+                                label="Download CSV",
+                                data=csv,
+                                file_name=f"subject_analysis_{section}_{subject}_{datetime.now().strftime('%Y%m%d')}.csv",
+                                mime="text/csv"
+                            )
+                    else:
+                        st.info(f"No attendance records found for {subject} in {section}")
+                except Exception as e:
+                    st.error(f"Error accessing attendance data: {str(e)}")
+        else:
+            st.error(f"No subjects found for section '{section}' in Section-Subject-Mapping sheet. " 
+                    f"Please ensure the section name is correctly mapped to subjects.")
 
 def get_faculty_workload(username):
     """Calculate faculty workload and organize by months"""
