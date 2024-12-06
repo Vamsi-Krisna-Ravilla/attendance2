@@ -7,19 +7,14 @@ from openpyxl.styles import Alignment
 import io
 import numpy as np
 
-# Single consolidated page config at the very start
+# Configure Streamlit page with improved mobile layout
 st.set_page_config(
-    page_title="Attendance Management System",
+    page_title="Attendance System",
     layout="wide",
-    initial_sidebar_state="collapsed",  # Better for mobile
-    menu_items={
-        'Get Help': None,
-        'Report a bug': None,
-        'About': "Attendance Management System"
-    }
+    initial_sidebar_state="collapsed"  # Start with collapsed sidebar on mobile
 )
 
-# Rest of your custom CSS for mobile-friendly styling
+# Add custom CSS for mobile-friendly styling
 st.markdown("""
     <style>
         /* Mobile-friendly containers */
@@ -107,28 +102,22 @@ st.markdown("""
             padding: 1rem 2rem !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
-        .attendance-status {
-            background: #f8fafc;
-            border-left: 1px solid #e2e8f0;
-            padding: 0.75rem;
-            min-width: 120px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
     </style>
 """, unsafe_allow_html=True)
+
+# Configure Streamlit page
+st.set_page_config(page_title="Attendance Management System", layout="wide")
 
 # Admin credentials
 ADMIN_CREDENTIALS = {
     "a": hashlib.sha256("a".encode()).hexdigest()
 }
 
-# Rest of your code remains the same...
+
 
 
 def mark_attendance_page():
-    """Enhanced mobile-friendly attendance marking page"""
+    """Page for marking attendance with mobile-friendly UI"""
     section = st.session_state.sections[0] if st.session_state.sections else None
     subject = st.session_state.subject
     period = st.session_state.period
@@ -138,108 +127,106 @@ def mark_attendance_page():
         if df_students is not None:
             attendance_data = {}
             
-            # Session info card
-            st.markdown(f"""
-                <div style='background: linear-gradient(135deg, #6B46C1 0%, #805AD5 100%);
-                          color: white;
-                          padding: 1.2rem;
-                          border-radius: 15px;
-                          margin-bottom: 1.5rem;
-                          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);'>
-                    <h3 style='margin: 0; font-size: 1.2rem; font-weight: 600;'>Current Session</h3>
-                    <div style='margin-top: 1rem;'>
-                        <div style='display: flex; align-items: center; margin: 0.5rem 0;'>
-                            <span style='width: 24px; text-align: center; margin-right: 8px;'>📚</span>
-                            <span style='font-size: 1rem;'>{section}</span>
-                        </div>
-                        <div style='display: flex; align-items: center; margin: 0.5rem 0;'>
-                            <span style='width: 24px; text-align: center; margin-right: 8px;'>📖</span>
-                            <span style='font-size: 1rem;'>{subject}</span>
-                        </div>
-                        <div style='display: flex; align-items: center; margin: 0.5rem 0;'>
-                            <span style='width: 24px; text-align: center; margin-right: 8px;'>⏰</span>
-                            <span style='font-size: 1rem;'>Period {period}</span>
-                        </div>
-                    </div>
+            # Add class info at the top
+            st.markdown("""
+                <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 10px; margin-bottom: 1rem;'>
+                    <h4 style='margin: 0; color: #262730;'>Current Session</h4>
+                    <p style='margin: 0.5rem 0 0 0;'>
+                        <span style='color: #555; margin-right: 1rem;'>📚 Section: {}</span>
+                        <span style='color: #555; margin-right: 1rem;'>📖 Subject: {}</span>
+                        <span style='color: #555;'>⏰ Period: {}</span>
+                    </p>
                 </div>
-            """, unsafe_allow_html=True)
+            """.format(section, subject, period), unsafe_allow_html=True)
             
-            # Quick action buttons
+            # Select all/none buttons with better styling
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("✓ Mark All Present", use_container_width=True, type="primary"):
+                if st.button("📋 Select All", use_container_width=True):
                     st.session_state.select_all = True
             with col2:
-                if st.button("✗ Mark All Absent", use_container_width=True):
+                if st.button("❌ Select None", use_container_width=True):
                     st.session_state.select_all = False
             
-            # Student list with clean cards
-            for idx, student in df_students.iterrows():
-                # Create a container for each student card
-                with st.container():
-                    col1, col2 = st.columns([7,3])
-                    
-                    # Student info column
-                    with col1:
-                        st.markdown(f"""
-                            <div style="padding-top: 0.5rem;">
-                                <div style="font-size: 1rem; font-weight: 500; color: white; margin-bottom: 0.2rem;">
-                                    {student['Student Name']}
-                                </div>
-                                <div style="font-size: 1rem; color: white; margin-bottom: 0.2rem;">
-                                    {student['HT Number']}
-                                </div>
-                                <div style="font-size: 0.8rem; color: #888;">
-                                    {student['Original Section']}
-                                </div>
+            st.markdown("<h3 style='margin-top: 1.5rem;'>Students</h3>", unsafe_allow_html=True)
+            
+            # Create a container for student list
+            students_container = st.container()
+            with students_container:
+                for idx, student in df_students.iterrows():
+                    # Add card-like styling for each student
+                    st.markdown("""
+                        <div style='background-color: white; 
+                                  padding: 0.8rem; 
+                                  border-radius: 8px; 
+                                  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                                  margin: 0.5rem 0;'>
+                            <div style='font-size: 1rem; color: #262730; font-weight: 500;'>
+                                {} - {}
                             </div>
-                        """, unsafe_allow_html=True)
+                            <div style='font-size: 0.9rem; color: #666; margin-top: 0.3rem;'>
+                                {}
+                            </div>
+                        </div>
+                    """.format(
+                        student['HT Number'],
+                        student['Student Name'],
+                        student['Original Section']
+                    ), unsafe_allow_html=True)
                     
-                    # Attendance checkbox column
-                    with col2:
-                        status = st.checkbox(
-                            "Present",
-                            key=student['HT Number'],
-                            value=getattr(st.session_state, 'select_all', True)
-                        )
-                        
+                    # Present checkbox with larger touch target
+                    default_value = getattr(st.session_state, 'select_all', True)
+                    status = 'P' if st.checkbox(
+                        "✓ Present",
+                        key=student['HT Number'],
+                        value=default_value,
+                        help="Mark student as present"
+                    ) else 'A'
                     attendance_data[student['HT Number']] = {
-                        'status': 'P' if status else 'A',
+                        'status': status,
                         'original_section': student['Original Section']
                     }
-                    
-                    # Add a divider between cards
-                    st.markdown("<hr style='margin: 0.5rem 0; border: none; border-top: 1px solid #eee;'>", unsafe_allow_html=True)
             
-            # Submit button with margin space
-            st.markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
+            # Add floating submit button
+            st.markdown("""
+                <style>
+                    .stButton button {
+                        width: 100%;
+                        padding: 0.8rem !important;
+                        font-size: 1.1rem !important;
+                        margin-top: 1rem;
+                        background-color: #FF4B4B;
+                        color: white;
+                        border: none;
+                        border-radius: 8px;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
             
-            if st.button("📝 Submit Attendance", type="primary", key="submit_attendance", use_container_width=True):
+            if st.button("📝 Submit Attendance", type="primary"):
                 success, unsuccessful_records = mark_attendance(
-                    section, period, attendance_data,
+                    section, period, attendance_data, 
                     st.session_state.username, subject
                 )
                 
                 if unsuccessful_records:
-                    st.info(f"✅ Recorded {len(attendance_data) - len(unsuccessful_records)} students")
-                    st.warning("⚠️ Issues found:")
-                    for record in unsuccessful_records:
-                        st.markdown(f"""
-                            <div style='background: #FFF3CD;
-                                      padding: 1rem;
-                                      border-radius: 8px;
-                                      margin: 0.5rem 0;
-                                      border: 1px solid #FFE69C;'>
-                                <div style='font-weight: 500; color: #664D03;'>
-                                    {record['Student Name']} ({record['HT Number']})
-                                </div>
-                                <div style='color: #997404; font-size: 0.9rem; margin-top: 0.3rem;'>
-                                    {record['Reason']}
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
+                    st.info(f"✅ Successfully recorded attendance for {len(attendance_data) - len(unsuccessful_records)} students")
+                    
+                    st.warning("⚠️ Notice: Following students have attendance marking issues:")
+                    unsuccessful_df = pd.DataFrame(unsuccessful_records)
+                    st.dataframe(
+                        unsuccessful_df,
+                        column_config={
+                            'HT Number': st.column_config.TextColumn('HT Number', width=100),
+                            'Student Name': st.column_config.TextColumn('Student Name', width=150),
+                            'Original Section': st.column_config.TextColumn('Original Section', width=120),
+                            'Reason': st.column_config.TextColumn('Issue Details', width=200)
+                        },
+                        hide_index=True
+                    )
                 else:
-                    st.success(f"✅ Successfully recorded all {len(attendance_data)} students")
+                    st.success(f"✅ Successfully recorded attendance for all {len(attendance_data)} students")
+
 
 def faculty_page():
     # Get faculty full name from session state
@@ -369,6 +356,93 @@ def update_faculty_log(faculty_name, section, period, subject):
         return False
 
 
+
+def mark_attendance(section, period, attendance_data, username, subject):
+    """Modified mark_attendance function to update faculty log"""
+    try:
+        # First get faculty name from username
+        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+        faculty_row = df_faculty[df_faculty['Username'] == username].iloc[0]
+        faculty_name = faculty_row['Faculty Name']  # Use full faculty name
+        
+        date_str = datetime.now().strftime('%d/%m/%Y')
+        time_str = datetime.now().strftime('%I:%M%p')
+        unsuccessful_records = []
+        
+        # Rest of marking attendance code...
+        original_sections = {}
+        for ht_number, data in attendance_data.items():
+            orig_section = data['original_section'].replace("Original: ", "")
+            if orig_section not in original_sections:
+                original_sections[orig_section] = {}
+            original_sections[orig_section][ht_number] = data['status']
+        
+        success = True
+        for orig_section, students in original_sections.items():
+            try:
+                df = pd.read_excel('attendance.xlsx', sheet_name=orig_section)
+                
+                with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay', engine='openpyxl') as writer:
+                    for ht_number, status in students.items():
+                        try:
+                            row_mask = df['HT Number'] == ht_number
+                            if not row_mask.any():
+                                student_df = pd.read_excel('attendance.xlsx', sheet_name=section)
+                                student_name = student_df[student_df['HT Number'] == ht_number]['Student Name'].iloc[0]
+                                unsuccessful_records.append({
+                                    'HT Number': ht_number,
+                                    'Student Name': student_name,
+                                    'Original Section': orig_section,
+                                    'Reason': f"Student not found in section {orig_section}"
+                                })
+                                continue
+                            
+                            # Use faculty_name here instead of username
+                            attendance_value = f"{date_str}_{time_str}_{status}_{faculty_name}_{subject}"
+                            current_value = df.loc[row_mask, period].iloc[0]
+                            df.loc[row_mask, period] = (
+                                f"{current_value}\n{attendance_value}" if pd.notna(current_value) and current_value 
+                                else attendance_value
+                            )
+                            
+                        except Exception as e:
+                            unsuccessful_records.append({
+                                'HT Number': ht_number,
+                                'Student Name': "Unknown",
+                                'Original Section': orig_section,
+                                'Reason': "Unable to process attendance"
+                            })
+                    
+                    df.to_excel(writer, sheet_name=orig_section, index=False)
+                    
+                    # Format worksheet
+                    worksheet = writer.sheets[orig_section]
+                    for row in worksheet.iter_rows():
+                        for cell in row:
+                            cell.alignment = Alignment(wrap_text=True, vertical='top')
+                    
+                    for column in worksheet.columns:
+                        max_length = max(len(str(cell.value or '')) for cell in column)
+                        worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
+                
+            except Exception as e:
+                success = False
+                for ht_number in students.keys():
+                    unsuccessful_records.append({
+                        'HT Number': ht_number,
+                        'Student Name': "Unknown",
+                        'Original Section': orig_section,
+                        'Reason': "Section access issue"
+                    })
+        
+        # Update faculty log if attendance marking was successful
+        if success:
+            update_faculty_log(faculty_name, section, period, subject)  # Use faculty_name here too
+        
+        return success, unsuccessful_records
+    
+    except Exception as e:
+        return False, []
 
 
 def get_student_data(section):
@@ -1570,62 +1644,40 @@ def mark_attendance(section, period, attendance_data, username, subject):
 
 
 def reset_password():
-    """Function to handle password reset with direct field presentation"""
     st.subheader("Reset Password")
     
     username = st.text_input("Username", key="reset_pwd_username")
-    current_password = st.text_input("Current Password", type="password", key="reset_pwd_current")
-    new_password = st.text_input("New Password", type="password", key="reset_pwd_new")
-    confirm_password = st.text_input("Confirm New Password", type="password", key="reset_pwd_confirm")
-    
-    if st.button("Reset Password", key="reset_pwd_button", type="primary"):
-        try:
-            if not all([username, current_password, new_password, confirm_password]):
-                st.error("All fields are required")
+    if username:
+        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+        user_mask = df_faculty['Username'] == username
+        
+        if not user_mask.any():
+            st.error("Username not found")
+            return
+            
+        current_password = st.text_input("Current Password", type="password", key="reset_pwd_current")
+        if current_password:
+            user_row = df_faculty[user_mask].iloc[0]
+            if user_row['Password'] != current_password:
+                st.error("Current password is incorrect")
                 return
                 
-            # Read faculty data
-            df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+            new_password = st.text_input("New Password", type="password", key="reset_pwd_new")
+            confirm_password = st.text_input("Confirm New Password", type="password", key="reset_pwd_confirm")
             
-            # Verify credentials
-            user_mask = (df_faculty['Username'] == username) & \
-                       (df_faculty['Password'] == current_password)
-            if not user_mask.any():
-                st.error("Invalid credentials")
-                return
-            
-            # Verify new passwords match
-            if new_password != confirm_password:
-                st.error("New passwords do not match")
-                return
-            
-            # Update password
-            df_faculty.loc[user_mask, 'Password'] = new_password
-            
-            # Save changes while preserving all columns
-            with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay') as writer:
-                df_faculty.to_excel(writer, sheet_name='Faculty', index=False)
-                
-                # Format worksheet
-                worksheet = writer.sheets['Faculty']
-                for row in worksheet.iter_rows():
-                    for cell in row:
-                        cell.alignment = Alignment(wrap_text=True, vertical='top')
-                
-                # Set column widths
-                for column in worksheet.columns:
-                    max_length = max(len(str(cell.value or '')) for cell in column)
-                    worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
-            
-            st.success("Password updated successfully! Please login again.")
-            
-            # Clear session state to force re-login
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"Error resetting password: {str(e)}")
+            if st.button("Reset Password", type="primary"):
+                if new_password != confirm_password:
+                    st.error("New passwords do not match")
+                    return
+                    
+                df_faculty.loc[user_mask, 'Password'] = new_password
+                with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay') as writer:
+                    df_faculty.to_excel(writer, sheet_name='Faculty', index=False)
+                    
+                st.success("Password updated successfully!")
+                time.sleep(1)
+                st.session_state.clear()
+                st.rerun()
 
 def reset_username():
     """Function to handle username reset"""
