@@ -183,10 +183,10 @@ def mark_attendance_page():
                     with col1:
                         st.markdown(f"""
                             <div style="padding-top: 0.5rem;">
-                                <div style="font-size: 1rem; font-weight: 500; color: white; margin-bottom: 0.2rem;">
+                                <div style="font-size: 1rem; font-weight: 500; color: #FF0099; margin-bottom: 0.2rem;">
                                     {student['Student Name']}
                                 </div>
-                                <div style="font-size: 1rem; color: white; margin-bottom: 0.2rem;">
+                                <div style="font-size: 1rem; color: #FF9900; margin-bottom: 0.2rem;">
                                     {student['HT Number']}
                                 </div>
                                 <div style="font-size: 0.8rem; color: #888;">
