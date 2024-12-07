@@ -723,27 +723,38 @@ def show_data_editor(sheet):
     """Show the data editor component with improved layout"""
     try:
         if sheet == 'Faculty':
-            # Special handling for Faculty sheet
-            df = pd.read_excel('attendance.xlsx', sheet_name=sheet, usecols=['Faculty Name', 'Password'])
+            # Modified to load all columns for Faculty sheet
+            df = pd.read_excel('attendance.xlsx', sheet_name=sheet)
             df = df.fillna('')
+            
+            # Configure columns with appropriate widths
+            column_config = {}
+            for col in df.columns:
+                width = 150 if col in ['Faculty Name', 'Username', 'Password'] else 300
+                column_config[str(col)] = st.column_config.TextColumn(
+                    col,
+                    width=width,
+                    help=f"Enter {col}",
+                    max_chars=None
+                )
         else:
             # Regular handling for other sheets
             df = pd.read_excel('attendance.xlsx', sheet_name=sheet)
             df = df.convert_dtypes().fillna('')
+            
+            # Configure columns
+            column_config = {}
+            for col in df.columns:
+                width = 150 if col in ['HT Number', 'Student Name'] else 300
+                column_config[str(col)] = st.column_config.TextColumn(
+                    col,
+                    width=width,
+                    help=f"Enter {col}",
+                    max_chars=None
+                )
         
         # Get actual number of rows
         data_rows = len(df)
-        
-        # Configure columns
-        column_config = {}
-        for col in df.columns:
-            width = 150 if col in ['HT Number', 'Student Name', 'Faculty Name'] else 300
-            column_config[str(col)] = st.column_config.TextColumn(
-                col,
-                width=width,
-                help=f"Enter {col}",
-                max_chars=None
-            )
         
         # Display editor with minimal extra rows
         edited_df = st.data_editor(
@@ -803,6 +814,7 @@ def show_data_editor(sheet):
                 
     except Exception as e:
         st.error(f"Error reading Excel file: {str(e)}")
+
 
 def get_faculty_data(sheet):
     """Get faculty data with proper type conversion"""
