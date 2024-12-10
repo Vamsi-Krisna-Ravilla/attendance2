@@ -262,8 +262,69 @@ def faculty_page():
         page = st.radio(
             "Select", 
             ["Mark Attendance", "View Statistics", "Student Reports", 
-             "Subject Analysis", "My Workload"]
+             "Subject Analysis", "My Workload", "Reset Credentials"]
         )
+
+    # Handle Reset Credentials page
+    if page == "Reset Credentials":
+        st.subheader("Reset Password")
+        current_password = st.text_input("Current Password", type="password", key="current_pwd")
+        new_password = st.text_input("New Password", type="password", key="new_pwd")
+        confirm_password = st.text_input("Confirm New Password", type="password", key="confirm_pwd")
+        
+        if st.button("Update Password", type="primary"):
+            try:
+                if not all([current_password, new_password, confirm_password]):
+                    st.error("All fields are required")
+                    return
+                    
+                # Read faculty data
+                df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+                
+                # Convert credentials columns to string and strip whitespace
+                df_faculty['Username'] = df_faculty['Username'].astype(str).str.strip()
+                df_faculty['Password'] = df_faculty['Password'].astype(str).str.strip()
+                
+                # Check current credentials
+                user_mask = (df_faculty['Username'] == st.session_state.username) & \
+                           (df_faculty['Password'] == current_password)
+                           
+                if not user_mask.any():
+                    st.error("Current password is incorrect")
+                    return
+                
+                # Verify new passwords match
+                if new_password != confirm_password:
+                    st.error("New passwords do not match")
+                    return
+                
+                # Update password
+                df_faculty.loc[user_mask, 'Password'] = new_password
+                
+                # Save changes
+                with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay') as writer:
+                    df_faculty.to_excel(writer, sheet_name='Faculty', index=False)
+                    
+                    # Format worksheet
+                    worksheet = writer.sheets['Faculty']
+                    for row in worksheet.iter_rows():
+                        for cell in row:
+                            cell.alignment = Alignment(wrap_text=True, vertical='top')
+                    
+                    for column in worksheet.columns:
+                        max_length = max(len(str(cell.value or '')) for cell in column)
+                        worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
+                
+                st.success("Password updated successfully! Please login again.")
+                
+                # Clear session state to force re-login
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Error updating password: {str(e)}")
+        return
 
     # Move attendance selection fields out of sidebar
     if page == "Mark Attendance":
@@ -327,9 +388,8 @@ def faculty_page():
         student_reports_page()
     elif page == "Subject Analysis":
         subject_analysis_page()
-    else:  # My Workload
+    elif page == "My Workload":
         workload_analysis_page()
-
 # Updated mark_attendance function to return both success status and unsuccessful records
 
 
@@ -1092,10 +1152,70 @@ def admin_page():
         st.header("Navigation")
         page = st.radio(
             "Select",
-            ["Data Management", "Faculty Workload"] 
+            ["Data Management", "Faculty Workload", "Reset Credentials"]
         )
     
-    if page == "Data Management":
+    if page == "Reset Credentials":
+        st.subheader("Reset Password")
+        current_password = st.text_input("Current Password", type="password", key="current_pwd")
+        new_password = st.text_input("New Password", type="password", key="new_pwd")
+        confirm_password = st.text_input("Confirm New Password", type="password", key="confirm_pwd")
+        
+        if st.button("Update Password", type="primary"):
+            try:
+                if not all([current_password, new_password, confirm_password]):
+                    st.error("All fields are required")
+                    return
+                    
+                # Read faculty data
+                df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+                
+                # Convert credentials columns to string and strip whitespace
+                df_faculty['Username'] = df_faculty['Username'].astype(str).str.strip()
+                df_faculty['Password'] = df_faculty['Password'].astype(str).str.strip()
+                
+                # Check current credentials
+                user_mask = (df_faculty['Username'] == st.session_state.username) & \
+                           (df_faculty['Password'] == current_password)
+                           
+                if not user_mask.any():
+                    st.error("Current password is incorrect")
+                    return
+                
+                # Verify new passwords match
+                if new_password != confirm_password:
+                    st.error("New passwords do not match")
+                    return
+                
+                # Update password
+                df_faculty.loc[user_mask, 'Password'] = new_password
+                
+                # Save changes
+                with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay') as writer:
+                    df_faculty.to_excel(writer, sheet_name='Faculty', index=False)
+                    
+                    # Format worksheet
+                    worksheet = writer.sheets['Faculty']
+                    for row in worksheet.iter_rows():
+                        for cell in row:
+                            cell.alignment = Alignment(wrap_text=True, vertical='top')
+                    
+                    for column in worksheet.columns:
+                        max_length = max(len(str(cell.value or '')) for cell in column)
+                        worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
+                
+                st.success("Password updated successfully! Please login again.")
+                
+                # Clear session state to force re-login
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Error updating password: {str(e)}")
+        return
+    
+    elif page == "Data Management":
         try:
             with st.sidebar:
                 st.header("Data Management")
@@ -1156,9 +1276,8 @@ def admin_page():
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
     
-    else:
+    else:  # Faculty Workload
         show_faculty_workload_admin()
-    
     
     # Logout button at the bottom of sidebar
     with st.sidebar:
@@ -1166,7 +1285,6 @@ def admin_page():
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
-
 
 def mark_attendance(section, period, attendance_data, username, subject, lesson_plan):
     """Modified mark_attendance function to include lesson plan"""
@@ -1462,20 +1580,23 @@ def check_login(username, password, is_admin=False):
         username = str(username).strip()
         password = str(password).strip()
         
+        # First verify basic credentials
+        user_exists = any((df_faculty['Username'] == username) & 
+                         (df_faculty['Password'] == password))
+        
+        if not user_exists:
+            return False
+            
         if is_admin:
-            # Check admin credentials
-            return any((df_faculty['Username'] == username) & 
-                      (df_faculty['Password'] == password) &
-                      (df_faculty['Faculty Name'].str.contains('admin', case=False)))
-        else:
-            # Check faculty credentials
-            return any((df_faculty['Username'] == username) & 
-                      (df_faculty['Password'] == password))
+            # For admin login, check if the user has admin in their faculty name
+            faculty_name = df_faculty[df_faculty['Username'] == username]['Faculty Name'].iloc[0]
+            return '(admin)' in faculty_name.lower()
+        
+        return True
                       
     except Exception as e:
         st.error(f"Login error: {str(e)}")
         return False
-
 
 def get_section_subjects(section, for_subject_analysis=False):
     """
@@ -1837,54 +1958,53 @@ def main():
     if 'logged_in' not in st.session_state:
         st.title("Login")
         
-        # Add tabs for login and reset options
-        tab1, tab2, tab3 = st.tabs(["Login", "Reset Password", "Reset Username"])
+        # Single login interface
+        login_type = st.radio("Select Login Type", ["Faculty", "Admin"], key="login_type")
+        username = st.text_input("Username", key="login_username")
+        password = st.text_input("Password", type="password", key="login_password")
         
-        with tab1:
-            login_type = st.radio("Select Login Type", ["Faculty", "Admin"], key="login_type")
-            username = st.text_input("Username", key="login_username")
-            password = st.text_input("Password", type="password", key="login_password")
-            
-            if st.button("Login", key="login_button", type="primary"):
-                try:
-                    # Read faculty data with proper data type handling
-                    df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-                    df_faculty['Username'] = df_faculty['Username'].astype(str).str.strip()
-                    df_faculty['Password'] = df_faculty['Password'].astype(str).str.strip()
+        if st.button("Login", key="login_button", type="primary"):
+            try:
+                # Read faculty data
+                df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+                df_faculty['Username'] = df_faculty['Username'].astype(str).str.strip()
+                df_faculty['Password'] = df_faculty['Password'].astype(str).str.strip()
+                
+                # Clean input credentials
+                username = str(username).strip()
+                password = str(password).strip()
+                
+                # Check if user exists
+                user_mask = (df_faculty['Username'] == username) & (df_faculty['Password'] == password)
+                
+                if not user_mask.any():
+                    st.error("Invalid credentials")
+                    return
                     
-                    # Clean input credentials
-                    username = str(username).strip()
-                    password = str(password).strip()
+                # Get user info and row index
+                user_row = df_faculty[user_mask].iloc[0]
+                user_index = df_faculty[user_mask].index[0]
+                faculty_name = user_row['Faculty Name']
+                
+                # For Admin login, check if it's the first row (index 0)
+                if login_type == "Admin":
+                    if user_index != 0:  # If not first row
+                        st.error("Invalid admin credentials")
+                        return
+                else:  # For Faculty login
+                    if user_index == 0:  # If first row
+                        st.error("Please use Admin login for admin credentials")
+                        return
+                
+                # If we get here, credentials are valid
+                st.session_state.logged_in = True
+                st.session_state.is_admin = (login_type == "Admin")
+                st.session_state.username = username
+                st.session_state.faculty_name = faculty_name
+                st.rerun()
                     
-                    # Check if user exists
-                    user_mask = (df_faculty['Username'] == username) & (df_faculty['Password'] == password)
-                    
-                    if user_mask.any():
-                        if login_type == "Admin":
-                            # Additional check for admin
-                            is_admin = df_faculty.loc[user_mask, 'Faculty Name'].iloc[0].lower().strip().startswith('admin')
-                            if not is_admin:
-                                st.error("Invalid admin credentials")
-                                return
-                        
-                        # User exists and credentials are valid
-                        user_row = df_faculty[user_mask].iloc[0]
-                        st.session_state.logged_in = True
-                        st.session_state.is_admin = (login_type == "Admin")
-                        st.session_state.username = username
-                        st.session_state.faculty_name = user_row['Faculty Name']
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials")
-                        
-                except Exception as e:
-                    st.error(f"Login error: {str(e)}")
-        
-        with tab2:
-            reset_password()
-            
-        with tab3:
-            reset_username()
+            except Exception as e:
+                st.error(f"Login error: {str(e)}")
     else:
         if st.session_state.is_admin:
             admin_page()
