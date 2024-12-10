@@ -1448,9 +1448,20 @@ def get_faculty_id(faculty_name):
     return None
 
 def check_login(username, password, is_admin=False):
-    """Verify login credentials"""
+    """Verify login credentials with improved data handling"""
     try:
+        # Read faculty data with string type conversion
         df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+        
+        # Convert credentials columns to string and strip whitespace
+        df_faculty['Username'] = df_faculty['Username'].astype(str).str.strip()
+        df_faculty['Password'] = df_faculty['Password'].astype(str).str.strip()
+        df_faculty['Faculty Name'] = df_faculty['Faculty Name'].astype(str).str.strip()
+        
+        # Convert input credentials to string and strip whitespace
+        username = str(username).strip()
+        password = str(password).strip()
+        
         if is_admin:
             # Check admin credentials
             return any((df_faculty['Username'] == username) & 
@@ -1460,10 +1471,10 @@ def check_login(username, password, is_admin=False):
             # Check faculty credentials
             return any((df_faculty['Username'] == username) & 
                       (df_faculty['Password'] == password))
+                      
     except Exception as e:
         st.error(f"Login error: {str(e)}")
         return False
-
 
 
 def get_section_subjects(section, for_subject_analysis=False):
@@ -1689,7 +1700,7 @@ def workload_analysis_page():
 
 
 def reset_password():
-    """Function to handle password reset with direct field presentation"""
+    """Function to handle password reset with improved data handling"""
     st.subheader("Reset Password")
     
     username = st.text_input("Username", key="reset_pwd_username")
@@ -1705,6 +1716,16 @@ def reset_password():
                 
             # Read faculty data
             df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+            
+            # Convert credentials columns to string and strip whitespace
+            df_faculty['Username'] = df_faculty['Username'].astype(str).str.strip()
+            df_faculty['Password'] = df_faculty['Password'].astype(str).str.strip()
+            
+            # Clean input credentials
+            username = str(username).strip()
+            current_password = str(current_password).strip()
+            new_password = str(new_password).strip()
+            confirm_password = str(confirm_password).strip()
             
             # Verify credentials
             user_mask = (df_faculty['Username'] == username) & \
@@ -1747,7 +1768,7 @@ def reset_password():
             st.error(f"Error resetting password: {str(e)}")
 
 def reset_username():
-    """Function to handle username reset"""
+    """Function to handle username reset with improved data handling"""
     st.subheader("Reset Username")
     
     current_username = st.text_input("Current Username", key="reset_user_current")
@@ -1762,6 +1783,15 @@ def reset_username():
                 
             # Read faculty data
             df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
+            
+            # Convert credentials columns to string and strip whitespace
+            df_faculty['Username'] = df_faculty['Username'].astype(str).str.strip()
+            df_faculty['Password'] = df_faculty['Password'].astype(str).str.strip()
+            
+            # Clean input credentials
+            current_username = str(current_username).strip()
+            password = str(password).strip()
+            new_username = str(new_username).strip()
             
             # Verify credentials
             user_mask = (df_faculty['Username'] == current_username) & \
@@ -1816,19 +1846,39 @@ def main():
             password = st.text_input("Password", type="password", key="login_password")
             
             if st.button("Login", key="login_button", type="primary"):
-                if check_login(username, password, login_type == "Admin"):
-                    st.session_state.logged_in = True
-                    st.session_state.is_admin = (login_type == "Admin")
-                    st.session_state.username = username
-                    
-                    # Get faculty name for display
+                try:
+                    # Read faculty data with proper data type handling
                     df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-                    user_row = df_faculty[df_faculty['Username'] == username].iloc[0]
-                    st.session_state.faculty_name = user_row['Faculty Name']
+                    df_faculty['Username'] = df_faculty['Username'].astype(str).str.strip()
+                    df_faculty['Password'] = df_faculty['Password'].astype(str).str.strip()
                     
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
+                    # Clean input credentials
+                    username = str(username).strip()
+                    password = str(password).strip()
+                    
+                    # Check if user exists
+                    user_mask = (df_faculty['Username'] == username) & (df_faculty['Password'] == password)
+                    
+                    if user_mask.any():
+                        if login_type == "Admin":
+                            # Additional check for admin
+                            is_admin = df_faculty.loc[user_mask, 'Faculty Name'].iloc[0].lower().strip().startswith('admin')
+                            if not is_admin:
+                                st.error("Invalid admin credentials")
+                                return
+                        
+                        # User exists and credentials are valid
+                        user_row = df_faculty[user_mask].iloc[0]
+                        st.session_state.logged_in = True
+                        st.session_state.is_admin = (login_type == "Admin")
+                        st.session_state.username = username
+                        st.session_state.faculty_name = user_row['Faculty Name']
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials")
+                        
+                except Exception as e:
+                    st.error(f"Login error: {str(e)}")
         
         with tab2:
             reset_password()
@@ -1840,7 +1890,6 @@ def main():
             admin_page()
         else:
             faculty_page()
-
 
 if __name__ == "__main__":
     main()
