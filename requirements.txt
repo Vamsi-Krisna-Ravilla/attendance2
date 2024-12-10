@@ -1,3 +1,4 @@
 openpyxl
 pandas
 streamlit
+#pip install streamlit pandas numpy plotly matplotlib seaborn pillow openpyxl
