@@ -1287,20 +1287,16 @@ def admin_page():
             st.rerun()
 
 def mark_attendance(section, period, attendance_data, username, subject, lesson_plan):
-    """Modified mark_attendance function with fixed time format"""
     try:
         # First get faculty name from username
         df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
         user_row = df_faculty[df_faculty['Username'] == username].iloc[0]
         faculty_name = user_row['Faculty Name']
         
-        # Fix time format to ensure 24-hour to 12-hour conversion is correct
         current_time = datetime.now()
         date_str = current_time.strftime('%d/%m/%Y')
-        # Use %I for 12-hour format, %M for minutes, and handle AM/PM correctly based on hour
-        time_str = current_time.strftime('%I:%M%p')  
+        time_str = current_time.strftime('%I:%M%p')
         
-        # Ensure single digit hours don't start with 0
         if time_str.startswith('0'):
             time_str = time_str[1:]
         
@@ -1317,7 +1313,9 @@ def mark_attendance(section, period, attendance_data, username, subject, lesson_
         success = True
         for orig_section, students in original_sections.items():
             try:
-                df = pd.read_excel('attendance.xlsx', sheet_name=orig_section)
+                # Read Excel with string dtypes for all columns
+                df = pd.read_excel('attendance.xlsx', sheet_name=orig_section, dtype=str)
+                df = df.fillna('')  # Replace NaN with empty string
                 
                 with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay', engine='openpyxl') as writer:
                     for ht_number, status in students.items():
@@ -1336,8 +1334,10 @@ def mark_attendance(section, period, attendance_data, username, subject, lesson_
                             
                             attendance_value = f"{date_str}_{time_str}_{status}_{faculty_name}_{subject}"
                             current_value = df.loc[row_mask, period].iloc[0]
+                            
+                            # Concatenate with proper handling of empty values
                             df.loc[row_mask, period] = (
-                                f"{current_value}\n{attendance_value}" if pd.notna(current_value) and current_value 
+                                f"{current_value}\n{attendance_value}" if current_value 
                                 else attendance_value
                             )
                             
@@ -1380,7 +1380,6 @@ def mark_attendance(section, period, attendance_data, username, subject, lesson_
     except Exception as e:
         st.error(f"Error marking attendance: {str(e)}")
         return False, []
-
 
 def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time_str=None, date_str=None):
     """Update faculty attendance log with fixed time format"""
@@ -1442,7 +1441,6 @@ def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time
     except Exception as e:
         st.error(f"Error updating faculty log: {str(e)}")
         return False
-
 
 def get_faculty_workload(username, include_lesson_plans=True):
     """Calculate faculty workload and organize by months, optionally including lesson plans"""
