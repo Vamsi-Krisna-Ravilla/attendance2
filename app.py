@@ -6,6 +6,8 @@ import openpyxl
 from openpyxl.styles import Alignment
 import io
 import numpy as np
+from datetime import datetime, timezone
+import pytz
 
 # Single consolidated page config at the very start
 st.set_page_config(
@@ -335,75 +337,34 @@ def get_subject_analysis(section, subject):
         st.error(f"Error in subject analysis: {str(e)}")
         return pd.DataFrame()
 
-def get_sections_by_course(course, for_attendance=False):
-    """Get sections filtered by course
-    
-    Args:
-        course: Course name (e.g., 'B.Tech-I')
-        for_attendance: If True, use merged sections, else use original sections
-    
-    Returns:
-        List of sections for the specified course
-    """
+def get_courses(for_attendance=False):
+    """Get unique courses directly from Course column"""
     try:
-        if not course:  # If no course selected, return empty list
-            return []
-            
         # Read the Excel file
         df = pd.read_excel('attendance.xlsx', sheet_name='Students', dtype={
+            'Course': str, 
             'Original Section': str,
             'Merged Section': str
         })
         
-        # Clean the course string (remove any prefix if present)
-        if course.startswith('(O)'):
-            clean_course = course[3:]  # Remove (O) prefix
-        else:
-            clean_course = course
-            
-        if for_attendance:
-            # For attendance marking: use merged sections
-            all_sections = df['Merged Section'].dropna().unique().tolist()
-        else:
-            # For analytics: use original sections
-            all_sections = df['Original Section'].dropna().unique().tolist()
-            
-        # Filter sections by exact course match
-        filtered_sections = []
-        for section in all_sections:
-            # Clean section name and extract course part
-            clean_section = section.replace('(O)', '') if section.startswith('(O)') else section
-            
-            # Split by hyphen and reconstruct course part
-            parts = clean_section.split('-')
-            if len(parts) >= 2:
-                section_course = f"{parts[0]}-{parts[1]}"  # e.g., "B.Tech-I"
-                
-                # Compare with desired course
-                if section_course == clean_course:
-                    # For analytics, add (O) prefix if not present
-                    if not for_attendance and not section.startswith('(O)'):
-                        filtered_sections.append(f"(O){section}")
-                    else:
-                        filtered_sections.append(section)
+        # Get unique, non-null courses directly from Course column
+        courses = df['Course'].dropna().unique().tolist()
         
-        return sorted(filtered_sections)
+        # Remove any empty strings and sort
+        courses = sorted([c for c in courses if str(c).strip()])
+        
+        return courses
         
     except Exception as e:
-        st.error(f"Error getting sections for course: {str(e)}")
+        st.error(f"Error getting courses: {str(e)}")
         return []
 
-
-def get_courses(for_attendance=False):
-    """Get unique courses from Course column
-    
-    Args:
-        for_attendance: If True, use merged sections, else use original sections
-    
-    Returns:
-        List of unique courses (e.g., ['B.Tech-I', 'B.Tech-II', etc])
-    """
+def get_sections_by_course(course, for_attendance=False):
+    """Get sections filtered by course"""
     try:
+        if not course:  # If no course selected, return empty list
+            return []
+            
         # Read the Excel file
         df = pd.read_excel('attendance.xlsx', sheet_name='Students', dtype={
             'Course': str,
@@ -411,33 +372,25 @@ def get_courses(for_attendance=False):
             'Merged Section': str
         })
         
-        if for_attendance:
-            # For attendance marking: get courses from merged sections
-            sections = df['Merged Section'].dropna().unique()
-        else:
-            # For analytics: get courses from original sections
-            sections = df['Original Section'].dropna().unique()
-            
-        # Extract valid courses only from actual data
-        courses = set()
-        for section in sections:
-            if pd.notna(section) and str(section).strip():
-                # Handle both direct course name and (O) prefixed sections
-                clean_section = section.replace('(O)', '').strip()
-                # Split by hyphen and take first two parts only if they form B.Tech-[I/II]
-                parts = clean_section.split('-')
-                if len(parts) >= 2 and parts[0] == 'B.Tech':
-                    if parts[1] in ['I', 'II']:  # Only allow B.Tech-I or B.Tech-II
-                        course = f"{parts[0]}-{parts[1]}"
-                        courses.add(course)
+        # Filter by course
+        df = df[df['Course'] == course]
         
-        # Sort courses naturally so B.Tech-I comes before B.Tech-II
-        return sorted(list(courses))
+        if for_attendance:
+            # For attendance marking: use merged sections
+            sections = df['Merged Section'].dropna().unique().tolist()
+        else:
+            # For analytics: use original sections
+            sections = df['Original Section'].dropna().unique().tolist()
+            sections = [f"(O){s}" if not s.startswith('(O)') else s for s in sections]
+        
+        # Remove any empty strings and sort
+        sections = sorted([s for s in sections if str(s).strip()])
+        
+        return sections
         
     except Exception as e:
-        st.error(f"Error getting courses: {str(e)}")
+        st.error(f"Error getting sections for course: {str(e)}")
         return []
-
 
 def get_attendance_stats(section, from_date=None, to_date=None):
     """Calculate attendance statistics with attended/conducted format"""
@@ -699,6 +652,10 @@ def check_duplicate_attendance(section, period, date_str):
     Returns tuple: (bool, str) - (is_duplicate, faculty_name who marked it)
     """
     try:
+        ist = pytz.timezone('Asia/Kolkata')
+        current_time = datetime.now(ist)
+        if not date_str:
+            date_str = current_time.strftime('%d/%m/%Y')
         df = pd.read_excel('attendance.xlsx', sheet_name='Students')
         # Filter for students in the given merged section
         section_df = df[df['Merged Section'] == section]
@@ -752,13 +709,14 @@ def check_existing_attendance(section, period):
 
 def mark_attendance(section, period, attendance_data, username, subject, lesson_plan):
     try:
-        # Format current date and time
-        current_time = datetime.now()
-        date_str = current_time.strftime('%d/%m/%Y')  # Updated date format
+        # Get current time in IST
+        current_time = get_current_time_ist()
+        date_str = current_time.strftime('%d/%m/%Y')
         time_str = current_time.strftime('%I:%M%p')
         if time_str.startswith('0'):
             time_str = time_str[1:]
-        # First check if attendance exists for this period
+
+        # Rest of your existing mark_attendance code...
         exists, marked_by, marked_date = check_existing_attendance(section, period)
         if exists:
             return False, [{
@@ -769,7 +727,7 @@ def mark_attendance(section, period, attendance_data, username, subject, lesson_
             }]
 
         # Get faculty name
-        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty', dtype=str)  # Use string dtype
+        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty', dtype=str)
         user_row = df_faculty[df_faculty['Username'] == username].iloc[0]
         faculty_name = user_row['Faculty Name']
         
@@ -2469,20 +2427,27 @@ def check_login(username, password, is_admin=False):
         st.error(f"Login error: {str(e)}")
         return False
 
+# Function to get current time in IST
+def get_current_time_ist():
+    """Get current time in IST timezone"""
+    ist = pytz.timezone('Asia/Kolkata')
+    current_time = datetime.now(ist)
+    return current_time
+
+
 def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time_str=None, date_str=None):
-    """Update faculty attendance log with fixed time format"""
     try:
         # Read faculty sheet
         df = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
         
-        # Get current month-year
-        current_date = datetime.now()
-        month_year = current_date.strftime('%b%Y')
+        # Get current time in IST
+        current_time = get_current_time_ist()
+        month_year = current_time.strftime('%b%Y')
         
         # Use provided time and date if available, otherwise generate new ones
         if time_str is None or date_str is None:
-            date_str = current_date.strftime('%d/%m/%Y')
-            time_str = current_date.strftime('%I:%M%p')
+            date_str = current_time.strftime('%d/%m/%Y')
+            time_str = current_time.strftime('%I:%M%p')
             if time_str.startswith('0'):
                 time_str = time_str[1:]
         

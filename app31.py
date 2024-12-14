@@ -6,6 +6,8 @@ import openpyxl
 from openpyxl.styles import Alignment
 import io
 import numpy as np
+from datetime import datetime, timezone
+import pytz
 
 # Single consolidated page config at the very start
 st.set_page_config(
@@ -699,6 +701,7 @@ def check_duplicate_attendance(section, period, date_str):
     Returns tuple: (bool, str) - (is_duplicate, faculty_name who marked it)
     """
     try:
+        
         df = pd.read_excel('attendance.xlsx', sheet_name='Students')
         # Filter for students in the given merged section
         section_df = df[df['Merged Section'] == section]

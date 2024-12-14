@@ -1,4 +1,9 @@
 openpyxl
 pandas
 streamlit
-#pip install streamlit pandas numpy plotly matplotlib seaborn pillow openpyxl
+pytz==2024.1
+numpy 
+plotly 
+matplotlib 
+seaborn 
+pillow 
