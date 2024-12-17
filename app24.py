@@ -12,7 +12,7 @@ st.set_page_config(
     page_title="RVIT - Student Feedback Form",
     page_icon="📚",
     layout="wide",
-    initial_sidebar_state="collapsed"  # Hide sidebar by default
+    initial_sidebar_state="expanded"
 )
 
 # Constants
@@ -669,9 +669,6 @@ def update_faculty_sheet(feedback_data):
         print(f"Error updating faculty sheet: {str(e)}")
         return False
 
-# Update at the very top of your script
-
-
 def show_feedback_form():
     """Display student feedback form with improved table layout"""
     try:
@@ -684,10 +681,10 @@ def show_feedback_form():
         """, unsafe_allow_html=True)
         
         # Program Selection
-        program = st.selectbox(
-            "Select Program *",
-            options=[""] + list(ACADEMIC_STRUCTURE.keys()),
-            index=0
+        program = st.radio(
+            "Select Program",
+            options=list(ACADEMIC_STRUCTURE.keys()),
+            horizontal=True
         )
         
         with st.form("feedback_form"):
@@ -696,22 +693,13 @@ def show_feedback_form():
             
             col1, col2 = st.columns(2)
             with col1:
-                # Branch selection with proper handling
-                branch_options = list(ACADEMIC_STRUCTURE[program].keys()) if program and program != "" else []
                 branch = st.selectbox(
                     "Select Branch/Discipline *",
-                    options=[""] + branch_options,
-                    index=0
+                    options=list(ACADEMIC_STRUCTURE[program].keys())
                 )
-                
-                # Year and Semester selection with proper dependency handling
-                year_sem_options = []
-                if program and program != "" and branch and branch != "":
-                    year_sem_options = list(ACADEMIC_STRUCTURE[program][branch].keys())
                 year_sem = st.selectbox(
                     "Year and Semester *",
-                    options=[""] + year_sem_options,
-                    index=0
+                    options=list(ACADEMIC_STRUCTURE[program][branch].keys())
                 )
             
             with col2:
@@ -719,15 +707,14 @@ def show_feedback_form():
                 student_name = st.text_input("Student Name *")
             
             # Load faculty list
-            faculty_list = []
             try:
-                if os.path.exists(FEEDBACK_FILE):
-                    faculty_df = pd.read_excel(FEEDBACK_FILE, sheet_name='faculty')
-                    faculty_list = faculty_df['Faculty_Name'].tolist()
+                faculty_df = pd.read_excel(FEEDBACK_FILE, sheet_name='faculty')
+                faculty_list = faculty_df['Faculty_Name'].tolist()
             except Exception as e:
                 st.error(f"Error loading faculty list: {str(e)}")
+                faculty_list = []
             
-            # Custom CSS for table layout (no changes needed here)
+            # Custom CSS for table layout
             st.markdown("""
                 <style>
                 .feedback-header {
@@ -760,107 +747,107 @@ def show_feedback_form():
                 </style>
             """, unsafe_allow_html=True)
             
+            # Subject Feedback
+            st.subheader("Subject Feedback")
+            
+            # Table Headers
+            st.markdown("""
+                <div class="feedback-header">
+                    <div class="subject-col">Subject</div>
+                    <div class="faculty-col">Faculty</div>
+                    <div class="rating-col">Rating</div>
+                </div>
+            """, unsafe_allow_html=True)
+            
             # Initialize feedback storage
             subject_ratings = {}
             faculty_selections = {}
-            lab_feedback = {}
             
-            # Only show subject feedback if all selections are made
-            if program and branch and year_sem and program != "" and branch != "" and year_sem != "":
-                # Subject Feedback
-                st.subheader("Subject Feedback")
+            # Subject Feedback Rows
+            for subject_code, subject_name in ACADEMIC_STRUCTURE[program][branch][year_sem]["subjects"].items():
+                st.markdown(f'<div class="feedback-row">', unsafe_allow_html=True)
                 
-                # Table Headers
-                st.markdown("""
-                    <div class="feedback-header">
-                        <div class="subject-col">Subject</div>
-                        <div class="faculty-col">Faculty</div>
-                        <div class="rating-col">Rating</div>
-                    </div>
-                """, unsafe_allow_html=True)
+                col1, col2, col3 = st.columns([3, 3, 4])
                 
-                # Subject Feedback Rows
-                for subject_code, subject_name in ACADEMIC_STRUCTURE[program][branch][year_sem]["subjects"].items():
-                    st.markdown(f'<div class="feedback-row">', unsafe_allow_html=True)
-                    
-                    col1, col2, col3 = st.columns([3, 3, 4])
-                    
-                    with col1:
-                        st.markdown(f"**{subject_name}**")
-                    
-                    with col2:
-                        selected_faculty = st.selectbox(
-                            "Select Faculty",
-                            options=[""] + faculty_list,
-                            key=f"faculty_{subject_code}",
-                            label_visibility="collapsed"
-                        )
-                        faculty_selections[subject_code] = selected_faculty
-                    
-                    with col3:
-                        rating = st.radio(
-                            "Rating",
-                            options=RATING_OPTIONS,
-                            key=f"rating_{subject_code}",
-                            label_visibility="collapsed",
-                            horizontal=True,
-                            index=None
-                        )
-                        subject_ratings[subject_code] = get_rating_value(rating) if rating else 0
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
+                with col1:
+                    st.markdown(f"**{subject_name}**")
                 
-                # Lab Feedback
-                if "labs" in ACADEMIC_STRUCTURE[program][branch][year_sem]:
-                    st.subheader("Lab Feedback")
-                    
-                    # Lab Table Headers
-                    st.markdown("""
-                        <div class="feedback-header">
-                            <div style="width: 40%; padding: 5px 10px;">Lab</div>
-                            <div style="width: 20%; padding: 5px 10px;">Explained</div>
-                            <div style="width: 20%; padding: 5px 10px;">Executed</div>
-                            <div style="width: 20%; padding: 5px 10px;">Records</div>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Lab Feedback Rows
-                    for lab_code, lab_name in ACADEMIC_STRUCTURE[program][branch][year_sem]["labs"].items():
-                        st.markdown(f'<div class="feedback-row">', unsafe_allow_html=True)
-                        
-                        col1, col2, col3, col4 = st.columns([4, 2, 2, 2])
-                        
-                        with col1:
-                            st.markdown(f"**{lab_name}**")
-                        
-                        with col2:
-                            explained = st.checkbox(
-                                "Explained",
-                                key=f"exp_{lab_code}",
-                                label_visibility="collapsed"
-                            )
-                        
-                        with col3:
-                            executed = st.checkbox(
-                                "Executed",
-                                key=f"exe_{lab_code}",
-                                label_visibility="collapsed"
-                            )
-                        
-                        with col4:
-                            records = st.checkbox(
-                                "Records",
-                                key=f"rec_{lab_code}",
-                                label_visibility="collapsed"
-                            )
-                        
-                        lab_feedback[lab_code] = {
-                            "explained": explained,
-                            "executed": executed,
-                            "records": records
-                        }
-                        
-                        st.markdown('</div>', unsafe_allow_html=True)
+                with col2:
+                    selected_faculty = st.selectbox(
+                        "Select Faculty",
+                        options=[""] + faculty_list,  # Add empty option as default
+                        key=f"faculty_{subject_code}",
+                        label_visibility="collapsed"
+                    )
+                    faculty_selections[subject_code] = selected_faculty
+                
+                with col3:
+                    rating = st.radio(
+                        "Rating",
+                        options=RATING_OPTIONS,
+                        key=f"rating_{subject_code}",
+                        label_visibility="collapsed",
+                        horizontal=True,
+                        index=None
+                    )
+                    subject_ratings[subject_code] = get_rating_value(rating) if rating else 0
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Lab Feedback
+            st.subheader("Lab Feedback")
+            
+            # Lab Table Headers
+            st.markdown("""
+                <div class="feedback-header">
+                    <div style="width: 40%; padding: 5px 10px;">Lab</div>
+                    <div style="width: 20%; padding: 5px 10px;">Explained</div>
+                    <div style="width: 20%; padding: 5px 10px;">Executed</div>
+                    <div style="width: 20%; padding: 5px 10px;">Records</div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Lab Feedback Rows
+            lab_feedback = {}
+            for lab_code, lab_name in ACADEMIC_STRUCTURE[program][branch][year_sem]["labs"].items():
+                st.markdown(f'<div class="feedback-row">', unsafe_allow_html=True)
+                
+                col1, col2, col3, col4 = st.columns([4, 2, 2, 2])
+                
+                with col1:
+                    st.markdown(f"**{lab_name}**")
+                
+                with col2:
+                    explained = st.checkbox(
+                        "Explained",
+                        key=f"exp_{lab_code}",
+                        label_visibility="collapsed",
+                        value=False
+                    )
+                
+                with col3:
+                    executed = st.checkbox(
+                        "Executed",
+                        key=f"exe_{lab_code}",
+                        label_visibility="collapsed",
+                        value=False
+                    )
+                
+                with col4:
+                    records = st.checkbox(
+                        "Records",
+                        key=f"rec_{lab_code}",
+                        label_visibility="collapsed",
+                        value=False
+                    )
+                
+                lab_feedback[lab_code] = {
+                    "explained": explained,
+                    "executed": executed,
+                    "records": records
+                }
+                
+                st.markdown('</div>', unsafe_allow_html=True)
             
             # Overall Feedback
             st.subheader("Overall Feedback")
@@ -879,31 +866,21 @@ def show_feedback_form():
             submitted = st.form_submit_button("Submit Feedback")
             
             if submitted:
-                # Validate program selection first
-                if not program or not branch or not year_sem or "" in [program, branch, year_sem]:
-                    st.error("Please select Program, Branch and Semester")
-                    return
-                
                 # Validate required fields
                 is_valid, error_message = validate_input(hall_ticket, student_name)
                 if not is_valid:
                     st.error(error_message)
                     return
                 
-                # Validate ratings and faculty selections
+                # Validate ratings
                 if not all(rating > 0 for rating in subject_ratings.values()):
                     st.error("Please provide ratings for all subjects")
-                    return
-                
-                if not all(faculty_selections.values()):
-                    st.error("Please select faculty for all subjects")
                     return
                 
                 if not overall_rating:
                     st.error("Please provide an overall rating")
                     return
                 
-                # Process form submission (rest of the code remains the same)
                 try:
                     feedback_data = {
                         'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -919,32 +896,42 @@ def show_feedback_form():
                         'Suggestions': suggestions
                     }
                     
-                    if os.path.exists(FEEDBACK_FILE):
-                        df = pd.read_excel(FEEDBACK_FILE, sheet_name='feedback')
-                        if not df.empty and len(df[df['Hall_Ticket'] == hall_ticket]) > 0:
-                            st.error("You have already submitted feedback. Multiple submissions are not allowed.")
-                            return
-                        
-                        with pd.ExcelWriter(FEEDBACK_FILE, mode='a', if_sheet_exists='overlay') as writer:
-                            df = pd.concat([df, pd.DataFrame([feedback_data])], ignore_index=True)
-                            df.to_excel(writer, sheet_name='feedback', index=False)
-                        
-                        if update_faculty_sheet(feedback_data):
-                            st.success("Thank you! Your feedback has been submitted successfully.")
-                            st.balloons()
-                            st.rerun()
+                    try:
+                        if os.path.exists(FEEDBACK_FILE):
+                            # Check for duplicate submissions
+                            df = pd.read_excel(FEEDBACK_FILE, sheet_name='feedback')
+                            if not df.empty and len(df[df['Hall_Ticket'] == hall_ticket]) > 0:
+                                st.error("You have already submitted feedback. Multiple submissions are not allowed.")
+                                return
+                            
+                            # Save feedback data
+                            with pd.ExcelWriter(FEEDBACK_FILE, mode='a', if_sheet_exists='overlay') as writer:
+                                df = pd.concat([df, pd.DataFrame([feedback_data])], ignore_index=True)
+                                df.to_excel(writer, sheet_name='feedback', index=False)
+                            
+                            # Update faculty ratings
+                            if update_faculty_sheet(feedback_data):
+                                st.success("Thank you! Your feedback has been submitted successfully.")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.warning("Feedback saved but faculty ratings update failed. Please contact administrator.")
                         else:
-                            st.warning("Feedback saved but faculty ratings update failed. Please contact administrator.")
-                    else:
-                        st.error("Feedback file not found. Please contact administrator.")
+                            st.error("Feedback file not found. Please contact administrator.")
+                            
+                    except Exception as e:
+                        st.error(f"Error saving feedback: {str(e)}")
+                        print(f"Error saving feedback: {str(e)}")
                         
                 except Exception as e:
-                    st.error(f"Error saving feedback: {str(e)}")
-                    print(f"Error saving feedback: {str(e)}")
+                    st.error(f"Error processing feedback: {str(e)}")
+                    print(f"Error processing feedback: {str(e)}")
     
     except Exception as e:
         st.error(f"Error displaying feedback form: {str(e)}")
-        print(f"Error displaying feedback form: {str(e)}")
+        print(f"Error displaying feedback form: {str(e)}")    
+
+
         
 
 def main():
