@@ -237,45 +237,25 @@ def create_template_df(sheet_name):
         return pd.DataFrame()
 
 
+
+
 def subject_analysis_page():
-    """Page for subject-wise analysis with improved date filtering"""
+    """Page for subject-wise analysis with unified sheet structure"""
     st.subheader("Subject-wise Analysis")
     
-    # First select course
-    courses = get_courses(for_attendance=True)
-    selected_course = st.selectbox("Select Course", options=[''] + courses)
+    # Use merged sections for the dropdown
+    sections = get_sections(for_attendance=True)  # Get merged sections
+    section = st.selectbox("Select Section", sections)
     
-    if selected_course:
-        # Then show filtered sections
-        sections = get_sections_by_course(selected_course, for_attendance=True)
-        section = st.selectbox("Select Section", sections if sections else ["No sections available"])
-        
-        if section and section != "No sections available":
-            # Get subjects for merged section
-            subjects = get_section_subjects(section, for_subject_analysis=True)
-            if subjects:
-                subject = st.selectbox("Select Subject", subjects)
-                
-                if subject:
-                    # Add date range selection
-                    st.write("### Select Date Range")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        from_date = st.date_input(
-                            "From Date",
-                            datetime.now().replace(day=1),  # Default to first day of current month
-                            key="subject_from_date"
-                        )
-                    with col2:
-                        to_date = st.date_input(
-                            "To Date",
-                            datetime.now(),  # Default to current date
-                            key="subject_to_date"
-                        )
-                    
-                    # Get analysis with date filtering
-                    analysis_df = get_subject_analysis(section, subject, from_date, to_date)
-                    
+    if section:
+        # Get subjects for merged section
+        subjects = get_section_subjects(section, for_subject_analysis=True)
+        if subjects:
+            subject = st.selectbox("Select Subject", subjects)
+            
+            if subject:
+                try:
+                    analysis_df = get_subject_analysis(section, subject)
                     if not analysis_df.empty:
                         st.write("### Subject Statistics")
                         col1, col2, col3 = st.columns(3)
@@ -314,18 +294,14 @@ def subject_analysis_page():
                                 mime="text/csv"
                             )
                     else:
-                        st.info(f"No attendance records found for {subject} in {section} for the selected date range")
-                else:
-                    st.info("Please select a subject to continue")
-            else:
-                st.error(f"No subjects found for section '{section}' in Section-Subject-Mapping sheet.")
+                        st.info(f"No attendance records found for {subject} in {section}")
+                except Exception as e:
+                    st.error(f"Error accessing attendance data: {str(e)}")
         else:
-            st.info("Please select a valid section to continue")
-    else:
-        st.info("Please select a course to continue")
+            st.error(f"No subjects found for section '{section}' in Section-Subject-Mapping sheet.")
 
-def get_subject_analysis(section, subject, from_date=None, to_date=None):
-    """Get subject-wise attendance analysis with improved date filtering"""
+def get_subject_analysis(section, subject):
+    """Get subject-wise attendance analysis using unified sheet"""
     try:
         df = pd.read_excel('attendance.xlsx', sheet_name='Students')
         # Filter students by merged section
@@ -343,29 +319,12 @@ def get_subject_analysis(section, subject, from_date=None, to_date=None):
                 if pd.notna(row[period]) and str(row[period]).strip():
                     entries = str(row[period]).split('\n')
                     for entry in entries:
-                        # Check if entry contains the subject
                         if subject in entry:
-                            # Parse date from entry
-                            try:
-                                parts = entry.split('_')
-                                date_str = parts[0]
-                                date_obj = datetime.strptime(date_str, '%d/%m/%Y').date()
-                                
-                                # Apply date filter if dates are provided
-                                if from_date and to_date:
-                                    filter_from = from_date if isinstance(from_date, datetime.date) else from_date.date()
-                                    filter_to = to_date if isinstance(to_date, datetime.date) else to_date.date()
-                                    
-                                    if not (filter_from <= date_obj <= filter_to):
-                                        continue
-                                
-                                total += 1
-                                if '_P_' in entry:
-                                    present += 1
-                            except (ValueError, IndexError) as e:
-                                continue
+                            total += 1
+                            if '_P_' in entry:
+                                present += 1
             
-            if total > 0:  # Only include students who have classes in the selected period
+            if total > 0:
                 percentage = (present / total) * 100
                 analysis.append({
                     'HT Number': str(row['HT Number']),
@@ -380,129 +339,6 @@ def get_subject_analysis(section, subject, from_date=None, to_date=None):
     except Exception as e:
         st.error(f"Error in subject analysis: {str(e)}")
         return pd.DataFrame()
-
-
-def student_reports_page():
-    """Page for individual student reports with original section names"""
-    st.subheader("Individual Student Reports")
-    
-    # Get original sections for reports - keeping original names
-    original_sections = get_sections(for_attendance=False)
-    selected_sections = st.multiselect("Select Sections", options=original_sections)
-    
-    if selected_sections:
-        try:
-            df = pd.read_excel('attendance.xlsx', sheet_name='Students')
-            df_filtered = df[df['Original Section'].isin(selected_sections)]
-            
-            if not df_filtered.empty:
-                # Add the date range input fields
-                col1, col2 = st.columns(2)
-                with col1:
-                    from_date = st.date_input("From Date")
-                with col2:
-                    to_date = st.date_input("To Date")
-                
-                student = st.selectbox(
-                    "Select Student",
-                    df_filtered['HT Number'].tolist(),
-                    format_func=lambda x: f"{x} - {df_filtered[df_filtered['HT Number']==x]['Student Name'].iloc[0]} ({df_filtered[df_filtered['HT Number']==x]['Original Section'].iloc[0]})"
-                )
-                
-                if student:
-                    student_data = df_filtered[df_filtered['HT Number'] == student].iloc[0]
-                    
-                    st.write(f"### Attendance Report for {student}")
-                    st.write(f"**Name:** {student_data['Student Name']}")
-                    st.write(f"**Section:** {student_data['Original Section']}")
-                    
-                    attendance_data = get_student_attendance_details(student_data['Original Section'], student, from_date, to_date)
-                    
-                    if attendance_data is not None and not attendance_data.empty:
-                        # Configure column display
-                        column_config = {
-                            'Date': st.column_config.TextColumn('Date', width=100),
-                            'Time': st.column_config.TextColumn('Time', width=100),
-                            'Period': st.column_config.TextColumn('Period', width=80),
-                            'Status': st.column_config.TextColumn('Status', width=80),
-                            'Faculty': st.column_config.TextColumn('Faculty', width=150),
-                            'Subject': st.column_config.TextColumn('Subject', width=150)
-                        }
-                        
-                        st.dataframe(
-                            attendance_data.sort_values('Date', ascending=False),
-                            column_config=column_config,
-                            hide_index=True,
-                            use_container_width=True
-                        )
-                        
-                        if st.button("Download Student Report"):
-                            csv = attendance_data.to_csv(index=False)
-                            st.download_button(
-                                label="Download CSV",
-                                data=csv,
-                                file_name=f"student_report_{student}_{datetime.now().strftime('%Y%m%d')}.csv",
-                                mime="text/csv"
-                            )
-                    else:
-                        st.info("No attendance records found")
-            else:
-                st.info("No students found in selected sections")
-                
-        except Exception as e:
-            st.error(f"Error loading student data: {str(e)}")
-
-def get_student_attendance_details(section, student_id, from_date=None, to_date=None):
-    try:
-        df = pd.read_excel('attendance.xlsx', sheet_name='Students')
-        student_row = df[df['HT Number'] == student_id]
-        
-        if student_row.empty:
-            return None
-            
-        student_row = student_row.iloc[0]
-        attendance_data = []
-        
-        for period in ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']:
-            if pd.notna(student_row[period]) and student_row[period]:
-                entries = str(student_row[period]).split('\n')
-                for entry in entries:
-                    if entry.strip():
-                        try:
-                            parts = entry.split('_')
-                            if len(parts) >= 6:
-                                date = parts[0]
-                                date_obj = pd.to_datetime(date, format='%d/%m/%Y')
-                                
-                                # Apply date range filter
-                                if from_date and to_date:
-                                    if not (from_date <= date_obj <= to_date):
-                                        continue
-                                
-                                time = parts[1]
-                                status = parts[2]
-                                faculty = parts[3]
-                                subject_and_plan = '_'.join(parts[4:])
-                                
-                                attendance_data.append({
-                                    'Date': date,
-                                    'Time': time,
-                                    'Period': period,
-                                    'Status': status,
-                                    'Faculty': faculty,
-                                    'Subject': subject_and_plan
-                                })
-                        except Exception as e:
-                            st.error(f"Error processing entry: {entry}")
-                            continue
-        
-        if not attendance_data:
-            return pd.DataFrame()
-            
-        return pd.DataFrame(attendance_data)
-    except Exception as e:
-        st.error(f"Error getting attendance details: {str(e)}")
-        return None
 
 def get_courses(for_attendance=False):
     """Get unique courses directly from Course column"""
@@ -697,6 +533,68 @@ def get_section_subjects(section, for_subject_analysis=False):
 
 
 
+def student_reports_page():
+    """Page for individual student reports with original section names"""
+    st.subheader("Individual Student Reports")
+    
+    # Get original sections for reports - keeping original names
+    original_sections = get_sections(for_attendance=False)
+    selected_sections = st.multiselect("Select Sections", options=original_sections)
+    
+    if selected_sections:
+        try:
+            df = pd.read_excel('attendance.xlsx', sheet_name='Students')
+            df_filtered = df[df['Original Section'].isin(selected_sections)]
+            
+            if not df_filtered.empty:
+                student = st.selectbox(
+                    "Select Student",
+                    df_filtered['HT Number'].tolist(),
+                    format_func=lambda x: f"{x} - {df_filtered[df_filtered['HT Number']==x]['Student Name'].iloc[0]} ({df_filtered[df_filtered['HT Number']==x]['Original Section'].iloc[0]})"
+                )
+                
+                if student:
+                    student_data = df_filtered[df_filtered['HT Number'] == student].iloc[0]
+                    
+                    st.write(f"### Attendance Report for {student}")
+                    st.write(f"**Name:** {student_data['Student Name']}")
+                    st.write(f"**Section:** {student_data['Original Section']}")
+                    
+                    attendance_data = get_student_attendance_details(student_data['Original Section'], student)
+                    
+                    if attendance_data is not None and not attendance_data.empty:
+                        # Configure column display
+                        column_config = {
+                            'Date': st.column_config.TextColumn('Date', width=100),
+                            'Time': st.column_config.TextColumn('Time', width=100),
+                            'Period': st.column_config.TextColumn('Period', width=80),
+                            'Status': st.column_config.TextColumn('Status', width=80),
+                            'Faculty': st.column_config.TextColumn('Faculty', width=150),
+                            'Subject': st.column_config.TextColumn('Subject', width=150)
+                        }
+                        
+                        st.dataframe(
+                            attendance_data.sort_values('Date', ascending=False),
+                            column_config=column_config,
+                            hide_index=True,
+                            use_container_width=True
+                        )
+                        
+                        if st.button("Download Student Report"):
+                            csv = attendance_data.to_csv(index=False)
+                            st.download_button(
+                                label="Download CSV",
+                                data=csv,
+                                file_name=f"student_report_{student}_{datetime.now().strftime('%Y%m%d')}.csv",
+                                mime="text/csv"
+                            )
+                    else:
+                        st.info("No attendance records found")
+            else:
+                st.info("No students found in selected sections")
+                
+        except Exception as e:
+            st.error(f"Error loading student data: {str(e)}")
 
 
 
@@ -814,6 +712,54 @@ def check_existing_attendance(section, period):
 
 
 
+def get_student_attendance_details(section, student_id):
+    """Get detailed attendance records for a student"""
+    try:
+        df = pd.read_excel('attendance.xlsx', sheet_name='Students')
+        student_row = df[df['HT Number'] == student_id]
+        
+        if student_row.empty:
+            return None
+            
+        student_row = student_row.iloc[0]
+        attendance_data = []
+        
+        for period in ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']:
+            if pd.notna(student_row[period]) and student_row[period]:
+                entries = str(student_row[period]).split('\n')
+                for entry in entries:
+                    if entry.strip():
+                        try:
+                            # Split the entry by underscore
+                            parts = entry.split('_')
+                            if len(parts) >= 6:  # We have all required parts
+                                date = parts[0]
+                                time = parts[1]
+                                status = parts[2]
+                                faculty = parts[3]
+                                # Join remaining parts as subject and lesson plan
+                                subject_and_plan = '_'.join(parts[4:])
+                                
+                                attendance_data.append({
+                                    'Date': date,
+                                    'Time': time,
+                                    'Period': period,
+                                    'Status': status,
+                                    'Faculty': faculty,
+                                    'Subject': subject_and_plan
+                                })
+                        except Exception as e:
+                            st.error(f"Error processing entry: {entry}")
+                            continue
+        
+        if not attendance_data:  # If no attendance records found
+            return pd.DataFrame()  # Return empty DataFrame
+            
+        return pd.DataFrame(attendance_data)
+    except Exception as e:
+        st.error(f"Error getting attendance details: {str(e)}")
+        return None
+
 
 
 def get_column_width(col_name, values):
@@ -831,6 +777,17 @@ def get_column_width(col_name, values):
 
 
 
+def get_faculty_data(sheet):
+    """Get faculty data with proper type conversion"""
+    try:
+        df = pd.read_excel('attendance.xlsx', sheet_name=sheet)
+        # Convert all columns to string type and handle dates
+        for col in df.columns:
+            df[col] = df[col].apply(lambda x: str(x) if pd.notnull(x) else '')
+        return df
+    except Exception as e:
+        st.error(f"Error getting faculty data: {str(e)}")
+        return None
 
 
 def get_all_faculty_workload(from_date=None, to_date=None):
@@ -2656,24 +2613,7 @@ def mark_attendance(section, period, attendance_data, username, subject, lesson_
         st.error(f"Error marking attendance: {str(e)}")
         return False, []
 
-def get_faculty_data(sheet):
-    """Get faculty data with proper empty value handling"""
-    try:
-        df = pd.read_excel('attendance.xlsx', sheet_name=sheet)
-        
-        # Convert all columns to string type and replace NaN with empty string
-        for col in df.columns:
-            df[col] = df[col].fillna('')  # Replace NaN with empty string
-            df[col] = df[col].astype(str)  # Convert to string type
-            df[col] = df[col].replace('nan', '')  # Replace any 'nan' strings with empty string
-            
-        return df
-    except Exception as e:
-        st.error(f"Error getting faculty data: {str(e)}")
-        return None
-
 def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time_str=None, date_str=None):
-    """Update faculty log with improved empty value handling"""
     try:
         # Get current time in IST with proper timezone handling
         current_time = get_current_time_ist()
@@ -2683,16 +2623,8 @@ def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time
             ist = pytz.timezone('Asia/Kolkata')
             current_time = ist.localize(current_time)
         
-        # Read faculty sheet with improved empty value handling
+        # Read faculty sheet
         df = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
-        
-        # Replace NaN with empty strings
-        df = df.fillna('')
-        
-        # Convert all columns to string type
-        for col in df.columns:
-            df[col] = df[col].astype(str)
-            df[col] = df[col].replace('nan', '')
         
         # Get current month-year for column
         month_year = current_time.strftime('%b%Y')
@@ -2713,23 +2645,21 @@ def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time
             existing_cols = list(df.columns)
             # Find the position after 'Password' column
             password_idx = existing_cols.index('Password')
-            # Insert new column after Password with empty string
+            # Insert new column after Password
             df.insert(password_idx + 1, month_year, '')
         
         # Update the log for the faculty
         faculty_mask = df['Faculty Name'] == faculty_name
         if faculty_mask.any():
-            current_log = df.loc[faculty_mask, month_year].iloc[0]
+            current_log = str(df.loc[faculty_mask, month_year].iloc[0])
             # Add new entry with proper newline handling
-            if current_log and str(current_log).strip() and str(current_log).strip() != 'nan':
+            if pd.notna(current_log) and current_log.strip():
                 new_log = f"{current_log}\n{log_entry}"
             else:
                 new_log = log_entry
-                
-            # Update with new log entry
             df.loc[faculty_mask, month_year] = new_log
         
-        # Save the updated sheet
+        # Save the updated sheet using openpyxl engine
         with pd.ExcelWriter('attendance.xlsx', mode='a', engine='openpyxl', if_sheet_exists='overlay') as writer:
             df.to_excel(writer, sheet_name='Faculty', index=False)
             
@@ -2739,6 +2669,7 @@ def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time
                 for cell in row:
                     cell.alignment = Alignment(wrap_text=True, vertical='top')
             
+            # Set column widths
             for column in worksheet.columns:
                 max_length = max(len(str(cell.value or '')) for cell in column)
                 worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
@@ -2747,6 +2678,8 @@ def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time
     except Exception as e:
         st.error(f"Error updating faculty log: {str(e)}")
         return False
+
+
 
 
 

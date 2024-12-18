@@ -710,105 +710,6 @@ def check_existing_attendance(section, period):
         st.error(f"Error checking attendance: {str(e)}")
         return False, None, None
 
-def mark_attendance(section, period, attendance_data, username, subject, lesson_plan):
-    try:
-        # Get current time in IST
-        current_time = get_current_time_ist()
-        date_str = current_time.strftime('%d/%m/%Y')
-        time_str = current_time.strftime('%I:%M%p')
-        if time_str.startswith('0'):
-            time_str = time_str[1:]
-
-        # Rest of your existing mark_attendance code...
-        exists, marked_by, marked_date = check_existing_attendance(section, period)
-        if exists:
-            return False, [{
-                'HT Number': 'N/A',
-                'Student Name': 'N/A',
-                'Original Section': section,
-                'Reason': f"Attendance for this section and period has already been marked by {marked_by} on {marked_date}. Multiple entries per period are not allowed."
-            }]
-
-        # Get faculty name
-        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty', dtype=str)
-        user_row = df_faculty[df_faculty['Username'] == username].iloc[0]
-        faculty_name = user_row['Faculty Name']
-        
-        # Format current date and time
-        current_time = datetime.now()
-        date_str = current_time.strftime('%d/%m/%Y')
-        time_str = current_time.strftime('%I:%M%p')
-        
-        if time_str.startswith('0'):
-            time_str = time_str[1:]
-        
-        unsuccessful_records = []
-        
-        # Process attendance data
-        df_students = pd.read_excel('attendance.xlsx', sheet_name='Students', dtype=str)  # Use string dtype
-        
-        # Group attendance data by original section
-        original_sections = {}
-        for ht_number, data in attendance_data.items():
-            orig_section = data['original_section'].replace("Original: ", "")
-            if orig_section not in original_sections:
-                original_sections[orig_section] = {}
-            original_sections[orig_section][ht_number] = data['status']
-        
-        success = True
-        
-        # Update attendance in the unified Students sheet
-        with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay', engine='openpyxl') as writer:
-            for ht_number, status in attendance_data.items():
-                try:
-                    row_mask = df_students['HT Number'] == ht_number
-                    if not row_mask.any():
-                        student_name = "Unknown"
-                        orig_section = "Unknown"
-                        unsuccessful_records.append({
-                            'HT Number': ht_number,
-                            'Student Name': student_name,
-                            'Original Section': orig_section,
-                            'Reason': "Student not found"
-                        })
-                        continue
-                    
-                    # Create attendance entry
-                    attendance_value = f"{date_str}_{time_str}_{status['status']}_{faculty_name}_{subject}_{lesson_plan}"
-                    
-                    # Set the value directly (no concatenation since we enforce uniqueness)
-                    df_students.loc[row_mask, period] = attendance_value
-                    
-                except Exception as e:
-                    unsuccessful_records.append({
-                        'HT Number': ht_number,
-                        'Student Name': "Unknown",
-                        'Original Section': "Unknown",
-                        'Reason': f"Error processing attendance: {str(e)}"
-                    })
-            
-            # Save updated data
-            df_students.to_excel(writer, sheet_name='Students', index=False)
-            
-            # Format worksheet
-            worksheet = writer.sheets['Students']
-            for row in worksheet.iter_rows():
-                for cell in row:
-                    cell.alignment = Alignment(wrap_text=True, vertical='top')
-            
-            for column in worksheet.columns:
-                max_length = max(len(str(cell.value or '')) for cell in column)
-                worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
-        
-        # Update faculty log if successful
-        if success:
-            update_faculty_log(faculty_name, section, period, subject, lesson_plan, time_str, date_str)
-        
-        return success, unsuccessful_records
-    
-    except Exception as e:
-        st.error(f"Error marking attendance: {str(e)}")
-        return False, []
 
 
 def get_student_attendance_details(section, student_id):
@@ -2433,24 +2334,121 @@ def check_login(username, password, is_admin=False):
         st.error(f"Login error: {str(e)}")
         return False
 
-# Function to get current time in IST
 def get_current_time_ist():
     """Get current time in IST timezone"""
     ist = pytz.timezone('Asia/Kolkata')
-    current_time = datetime.now(ist)
+    # Convert UTC to IST
+    utc_now = datetime.now(timezone.utc)
+    current_time = utc_now.astimezone(ist)
     return current_time
 
+def mark_attendance(section, period, attendance_data, username, subject, lesson_plan):
+    try:
+        # Get current time in IST and ensure timezone awareness
+        current_time = get_current_time_ist()
+        # Format the time with IST
+        date_str = current_time.strftime('%d/%m/%Y')
+        time_str = current_time.strftime('%I:%M%p')
+        if time_str.startswith('0'):
+            time_str = time_str[1:]
+
+        # Check for duplicate attendance
+        exists, marked_by, marked_date = check_existing_attendance(section, period)
+        if exists:
+            return False, [{
+                'HT Number': 'N/A',
+                'Student Name': 'N/A',
+                'Original Section': section,
+                'Reason': f"Attendance for this section and period has already been marked by {marked_by} on {marked_date}. Multiple entries per period are not allowed."
+            }]
+
+        # Get faculty name
+        df_faculty = pd.read_excel('attendance.xlsx', sheet_name='Faculty', dtype=str)
+        user_row = df_faculty[df_faculty['Username'] == username].iloc[0]
+        faculty_name = user_row['Faculty Name']
+        
+        unsuccessful_records = []
+        
+        # Process attendance data
+        df_students = pd.read_excel('attendance.xlsx', sheet_name='Students', dtype=str)
+        
+        # Group attendance data by original section
+        original_sections = {}
+        for ht_number, data in attendance_data.items():
+            orig_section = data['original_section'].replace("Original: ", "")
+            if orig_section not in original_sections:
+                original_sections[orig_section] = {}
+            original_sections[orig_section][ht_number] = data['status']
+        
+        success = True
+        
+        # Update attendance in the unified Students sheet
+        with pd.ExcelWriter('attendance.xlsx', mode='a', if_sheet_exists='overlay', engine='openpyxl') as writer:
+            for ht_number, status in attendance_data.items():
+                try:
+                    row_mask = df_students['HT Number'] == ht_number
+                    if not row_mask.any():
+                        student_name = "Unknown"
+                        orig_section = "Unknown"
+                        unsuccessful_records.append({
+                            'HT Number': ht_number,
+                            'Student Name': student_name,
+                            'Original Section': orig_section,
+                            'Reason': "Student not found"
+                        })
+                        continue
+                    
+                    # Create attendance entry
+                    attendance_value = f"{date_str}_{time_str}_{status['status']}_{faculty_name}_{subject}_{lesson_plan}"
+                    
+                    # Set the value directly (no concatenation since we enforce uniqueness)
+                    df_students.loc[row_mask, period] = attendance_value
+                    
+                except Exception as e:
+                    unsuccessful_records.append({
+                        'HT Number': ht_number,
+                        'Student Name': "Unknown",
+                        'Original Section': "Unknown",
+                        'Reason': f"Error processing attendance: {str(e)}"
+                    })
+            
+            # Save updated data
+            df_students.to_excel(writer, sheet_name='Students', index=False)
+            
+            # Format worksheet
+            worksheet = writer.sheets['Students']
+            for row in worksheet.iter_rows():
+                for cell in row:
+                    cell.alignment = Alignment(wrap_text=True, vertical='top')
+            
+            for column in worksheet.columns:
+                max_length = max(len(str(cell.value or '')) for cell in column)
+                worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
+        
+        # Update faculty log if successful
+        if success:
+            update_faculty_log(faculty_name, section, period, subject, lesson_plan, time_str, date_str)
+        
+        return success, unsuccessful_records
+    
+    except Exception as e:
+        st.error(f"Error marking attendance: {str(e)}")
+        return False, []
 
 def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time_str=None, date_str=None):
     try:
-        # Set timezone to IST
-        ist = pytz.timezone('Asia/Kolkata')
+        # Get current time in IST with proper timezone handling
+        current_time = get_current_time_ist()
+        
+        # Ensure we're working with timezone-aware datetime
+        if not current_time.tzinfo:
+            ist = pytz.timezone('Asia/Kolkata')
+            current_time = ist.localize(current_time)
         
         # Read faculty sheet
         df = pd.read_excel('attendance.xlsx', sheet_name='Faculty')
         
-        # Get current time in IST
-        current_time = get_current_time_ist()
+        # Get current month-year for column
         month_year = current_time.strftime('%b%Y')
         
         # Use provided time and date if available, otherwise generate new ones
@@ -2502,6 +2500,8 @@ def update_faculty_log(faculty_name, section, period, subject, lesson_plan, time
     except Exception as e:
         st.error(f"Error updating faculty log: {str(e)}")
         return False
+
+
 
 
 
