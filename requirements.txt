@@ -7,3 +7,5 @@ plotly
 matplotlib 
 seaborn 
 pillow 
+pdfkit 
+jinja2

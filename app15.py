@@ -9,195 +9,8 @@ import numpy as np
 from datetime import datetime, timezone
 import pytz
 from openpyxl.styles import Border, Side, Alignment
-import pdfkit
-from datetime import datetime
-import base64
-from io import BytesIO
-from jinja2 import Template
 
 
-def generate_pdf_report(df, title, filters=None):
-    """
-    Generate a PDF report with automatic column adjustment and header image
-    
-    Args:
-        df: DataFrame containing the report data
-        title: Report title
-        filters: Dictionary containing any filter criteria applied
-    """
-    # HTML template for the report
-    html_template = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            @page {
-                size: landscape;
-                margin: 1cm;
-            }
-            body {
-                font-family: Arial, sans-serif;
-                margin: 0;
-                padding: 20px;
-            }
-            .header {
-                text-align: center;
-                margin-bottom: 20px;
-            }
-            .header img {
-                max-width: 100%;
-                height: auto;
-            }
-            .report-title {
-                font-size: 20px;
-                font-weight: bold;
-                margin: 15px 0;
-                color: #2c3e50;
-                text-align: center;
-            }
-            .filters {
-                margin-bottom: 15px;
-                font-size: 12px;
-                color: #666;
-            }
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 10px;
-                font-size: 10px;
-            }
-            th {
-                background-color: #f8f9fa;
-                color: #2c3e50;
-                padding: 8px;
-                border: 1px solid #ddd;
-                text-align: left;
-            }
-            td {
-                padding: 6px;
-                border: 1px solid #ddd;
-            }
-            tr:nth-child(even) {
-                background-color: #f9f9f9;
-            }
-            .timestamp {
-                text-align: right;
-                font-size: 10px;
-                color: #666;
-                margin-top: 10px;
-            }
-            .footer {
-                position: fixed;
-                bottom: 0;
-                width: 100%;
-                text-align: center;
-                font-size: 10px;
-                color: #666;
-                padding: 10px 0;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <img src="data:image/png;base64,{{ header_image }}" alt="Header">
-        </div>
-        
-        <div class="report-title">{{ title }}</div>
-        
-        {% if filters %}
-        <div class="filters">
-            <strong>Filters:</strong>
-            {% for key, value in filters.items() %}
-                {{ key }}: {{ value }}{% if not loop.last %} | {% endif %}
-            {% endfor %}
-        </div>
-        {% endif %}
-        
-        <table>
-            <thead>
-                <tr>
-                    {% for column in columns %}
-                    <th>{{ column }}</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in data %}
-                <tr>
-                    {% for value in row %}
-                    <td>{{ value }}</td>
-                    {% endfor %}
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        
-        <div class="timestamp">
-            Generated on: {{ timestamp }}
-        </div>
-        
-        <div class="footer">
-            Page <span class="pageNumber"></span> of <span class="totalPages"></span>
-        </div>
-    </body>
-    </html>
-    """
-    
-    # Read and encode the header image
-    with open('header.png', 'rb') as img_file:
-        header_image = base64.b64encode(img_file.read()).decode('utf-8')
-    
-    # Remove unnecessary columns
-    if 'Section' in df.columns:
-        df = df.drop('Section', axis=1)
-    if 'Student Name' in df.columns:
-        df = df.drop('Student Name', axis=1)
-    
-    # Prepare template data
-    template_data = {
-        'header_image': header_image,
-        'title': title,
-        'filters': filters,
-        'columns': df.columns.tolist(),
-        'data': df.values.tolist(),
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-    
-    # Generate HTML
-    template = Template(html_template)
-    html_content = template.render(**template_data)
-    
-    # PDF options for landscape A4
-    pdf_options = {
-        'page-size': 'A4',
-        'orientation': 'Landscape',
-        'margin-top': '10mm',
-        'margin-right': '10mm',
-        'margin-bottom': '10mm',
-        'margin-left': '10mm',
-        'encoding': 'UTF-8',
-        'no-outline': None,
-        'enable-local-file-access': None
-    }
-    
-    # Generate PDF
-    pdf = pdfkit.from_string(html_content, False, options=pdf_options)
-    
-    return pdf
-
-# Example usage in the existing code:
-def download_attendance_report(stats_df, filters):
-    try:
-        pdf = generate_pdf_report(
-            df=stats_df,
-            title="Attendance Report",
-            filters=filters
-        )
-        
-        return pdf
-    except Exception as e:
-        st.error(f"Error generating PDF: {str(e)}")
-        return None
 
 # Single consolidated page config at the very start
 st.set_page_config(
@@ -334,14 +147,15 @@ def format_text_for_excel(value):
 
 # Rest of your code remains the same...
 def view_statistics_page():
-    """Page for viewing attendance statistics with PDF download capability"""
+    """Page for viewing attendance statistics with course filtering"""
     st.subheader("View Attendance Statistics")
     
     # First select course
-    courses = get_courses(for_attendance=False)  
+    courses = get_courses(for_attendance=False)  # Get original course list
     selected_course = st.selectbox("Select Course", options=[''] + courses)
     
     if selected_course:
+        # Then show filtered sections for the selected course
         sections = get_sections_by_course(selected_course, for_attendance=False)
         sections = [f"(O){s}" if not s.startswith('(O)') else s for s in sections]
         selected_sections = st.multiselect("Select Sections", options=sections)
@@ -404,216 +218,58 @@ def view_statistics_page():
                     hide_index=True
                 )
                 
-                # Download Report button
+                # Inside view_statistics_page()
                 if st.button("Download Report"):
-                    filters = {
-                        "Course": selected_course,
-                        "Sections": ", ".join(selected_sections),
-                        "Date Range": f"{from_date} to {to_date}"
-                    }
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                        # Create a copy of the dataframe for downloading
+                        download_df = combined_stats.copy()
+                        
+                        # Format columns that contain fractions
+                        for col in download_df.columns:
+                            if 'Attended/Conducted' in col or 'Total' in col:
+                                download_df[col] = download_df[col].apply(format_text_for_excel)
+                        
+                        download_df.to_excel(writer, sheet_name='Attendance Stats', index=False)
+                        
+                        # Get the worksheet
+                        worksheet = writer.sheets['Attendance Stats']
+                        
+                        # Format columns
+                        for idx, col in enumerate(download_df.columns):
+                            if 'Attended/Conducted' in col or 'Total' in col:
+                                col_letter = chr(65 + idx)
+                                # Set the entire column to Text format
+                                for row in range(2, len(download_df) + 2):  # Skip header
+                                    cell = worksheet[f"{col_letter}{row}"]
+                                    cell.number_format = '@'
+                        
+                        # Format worksheet
+                        for column in worksheet.columns:
+                            max_length = max(len(str(cell.value or '')) for cell in column)
+                            worksheet.column_dimensions[column[0].column_letter].width = min(50, max(12, max_length + 2))
+                        
+                        # Add borders and alignment
+                        thin_border = Border(left=Side(style='thin'), 
+                                        right=Side(style='thin'), 
+                                        top=Side(style='thin'), 
+                                        bottom=Side(style='thin'))
+                                        
+                        for row in worksheet.rows:
+                            for cell in row:
+                                cell.border = thin_border
+                                cell.alignment = Alignment(horizontal='center', vertical='center')
                     
-                    try:
-                        # Prepare data for PDF
-                        pdf_df = combined_stats.copy()
-                        # Remove unnecessary columns
-                        pdf_df = pdf_df.drop(['Student Name', 'Section'], axis=1, errors='ignore')
-                        
-                        # Generate PDF
-                        pdf_data = generate_statistics_pdf(
-                            df=pdf_df,
-                            title="Attendance Statistics Report",
-                            filters=filters
-                        )
-                        
-                        if pdf_data:
-                            st.download_button(
-                                label="📥 Download PDF Report",
-                                data=pdf_data,
-                                file_name=f"attendance_stats_{datetime.now().strftime('%Y%m%d')}.pdf",
-                                mime="application/pdf"
-                            )
-                        else:
-                            st.error("Error generating PDF report")
-                    except Exception as e:
-                        st.error(f"Error generating PDF report: {str(e)}")
+                    st.download_button(
+                        label="Download Excel",
+                        data=buffer.getvalue(),
+                        file_name=f"attendance_stats_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
             else:
-                st.info("No attendance records found for the selected criteria")    
-    
-                
-def generate_statistics_pdf(df, title, filters=None):
-    """
-    Generate a PDF report for attendance statistics with dark theme
-    """
-    html_template = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            @page {
-                size: landscape;
-                margin: 1.5cm;
-            }
-            body {
-                font-family: Arial, sans-serif;
-                background-color: #1a1a1a;
-                color: #ffffff;
-                margin: 0;
-                padding: 20px;
-            }
-            .header {
-                text-align: center;
-                margin-bottom: 30px;
-            }
-            .header img {
-                max-width: 200px;
-                height: auto;
-            }
-            .metrics {
-                display: flex;
-                justify-content: space-between;
-                margin-bottom: 30px;
-            }
-            .metric {
-                text-align: center;
-                flex: 1;
-                margin: 0 15px;
-            }
-            .metric-value {
-                font-size: 36px;
-                font-weight: bold;
-                margin: 10px 0;
-            }
-            .metric-label {
-                font-size: 14px;
-                color: #888;
-            }
-            .section-title {
-                font-size: 24px;
-                color: #ffffff;
-                margin: 20px 0;
-            }
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                background-color: #1a1a1a;
-                margin-top: 20px;
-            }
-            th {
-                background-color: #333;
-                color: #fff;
-                padding: 12px;
-                text-align: left;
-                font-weight: normal;
-                font-size: 12px;
-            }
-            td {
-                padding: 12px;
-                border-top: 1px solid #333;
-                color: #fff;
-                font-size: 12px;
-            }
-            tr:nth-child(even) {
-                background-color: #222;
-            }
-            .timestamp {
-                text-align: right;
-                font-size: 10px;
-                color: #666;
-                margin-top: 20px;
-            }
-            .warning-cell {
-                color: #ff4444;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="metrics">
-            <div class="metric">
-                <div class="metric-label">Total Students</div>
-                <div class="metric-value">{{ metrics.total_students }}</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">Average Attendance</div>
-                <div class="metric-value">{{ "%.2f"|format(metrics.avg_attendance) }}%</div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">Students Below 75%</div>
-                <div class="metric-value">{{ metrics.below_75 }}</div>
-            </div>
-        </div>
+                st.info("No attendance records found for the selected criteria")
 
-        <div class="section-title">Student-wise Statistics</div>
-        
-        <table>
-            <thead>
-                <tr>
-                    {% for column in columns %}
-                    <th>{{ column }}</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in data %}
-                <tr>
-                    {% for value in row %}
-                    <td {% if loop.last and value|float < 75 %}class="warning-cell"{% endif %}>
-                        {{ value }}
-                    </td>
-                    {% endfor %}
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        
-        <div class="timestamp">
-            Generated on: {{ timestamp }}
-        </div>
-    </body>
-    </html>
-    """
-    
-    # Calculate metrics
-    metrics = {
-        'total_students': len(df),
-        'avg_attendance': df['Overall %'].mean(),
-        'below_75': len(df[df['Overall %'] < 75])
-    }
-    
-    # Prepare template data
-    template_data = {
-        'title': title,
-        'filters': filters,
-        'metrics': metrics,
-        'columns': df.columns.tolist(),
-        'data': df.values.tolist(),
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-    
-    # Generate HTML
-    template = Template(html_template)
-    html_content = template.render(**template_data)
-    
-    # PDF options for landscape A4
-    pdf_options = {
-        'page-size': 'A4',
-        'orientation': 'Landscape',
-        'margin-top': '15mm',
-        'margin-right': '15mm',
-        'margin-bottom': '15mm',
-        'margin-left': '15mm',
-        'encoding': 'UTF-8',
-        'no-outline': None,
-        'enable-local-file-access': None,
-        'background': True,
-        # Dark theme settings
-        'print-media-type': None,
-        'no-background': None
-    }
-    
-    # Generate PDF
-    pdf = pdfkit.from_string(html_content, False, options=pdf_options)
-    
-    return pdf
+
 
 
 def create_template_df(sheet_name):
@@ -1217,6 +873,10 @@ def check_duplicate_attendance(section, period, date_str):
     Returns tuple: (bool, str) - (is_duplicate, faculty_name who marked it)
     """
     try:
+        ist = pytz.timezone('Asia/Kolkata')
+        current_time = datetime.now(ist)
+        if not date_str:
+            date_str = current_time.strftime('%d/%m/%Y')
         df = pd.read_excel('attendance.xlsx', sheet_name='Students')
         # Filter for students in the given merged section
         section_df = df[df['Merged Section'] == section]
@@ -1226,57 +886,48 @@ def check_duplicate_attendance(section, period, date_str):
                 if pd.notna(row[period]):
                     entries = str(row[period]).split('\n')
                     for entry in entries:
-                        if entry.strip():
-                            # Extract date and faculty from the entry
+                        if entry.strip() and entry.startswith(date_str):
+                            # Extract faculty name from the entry
                             try:
                                 parts = entry.split('_')
-                                if len(parts) >= 5:
-                                    entry_date = parts[0]
-                                    # Only check if dates match exactly
-                                    if entry_date == date_str:
-                                        faculty_name = parts[3]
-                                        return True, faculty_name
+                                if len(parts) >= 5:  # Ensure we have enough parts
+                                    faculty_name = parts[3]
+                                    return True, faculty_name
                             except:
-                                continue
+                                return True, "another faculty"
             return False, None
         return False, None
     except Exception as e:
         st.error(f"Error checking duplicate attendance: {str(e)}")
-        return False, None
+        return True, None  # Return True on error to prevent attendance marking
 
 def check_existing_attendance(section, period):
-    """
-    Check if any attendance exists for this merged section and period for today
-    Returns tuple: (bool, str, str) - (has_existing, faculty_name, date)
-    """
+    """Check if any attendance exists for this merged section and period"""
     try:
-        current_date = datetime.now().strftime('%d/%m/%Y')
-        df = pd.read_excel('attendance.xlsx', sheet_name='Students', dtype=str)
+        df = pd.read_excel('attendance.xlsx', sheet_name='Students', dtype=str)  # Load with string dtype
         
         # Filter for students in the merged section
         section_df = df[df['Merged Section'] == section]
         
         if period in section_df.columns:
-            for _, row in section_df.iterrows():
-                if pd.notna(row[period]):
-                    entries = str(row[period]).split('\n')
-                    for entry in entries:
-                        if entry.strip():
-                            try:
-                                parts = entry.split('_')
-                                if len(parts) >= 4:
-                                    entry_date = parts[0]
-                                    # Only block if trying to mark attendance twice on same day
-                                    if entry_date == current_date:
-                                        faculty_name = parts[3]
-                                        return True, faculty_name, entry_date
-                            except:
-                                continue
+            # Check if any non-empty entries exist for this period
+            has_entries = section_df[period].fillna('').str.strip().ne('').any()
+            
+            if has_entries:
+                # Get the first non-empty entry to find who marked it
+                first_entry = section_df[period].fillna('').str.strip().ne('').idxmax()
+                entry_str = section_df.loc[first_entry, period].split('\n')[0]  # Get first entry
+                parts = entry_str.split('_')
+                if len(parts) >= 4:
+                    faculty_name = parts[3]  # Faculty name is in index 3
+                    date_str = parts[0]  # Date is in index 0
+                    return True, faculty_name, date_str
             return False, None, None
         return False, None, None
     except Exception as e:
         st.error(f"Error checking attendance: {str(e)}")
         return False, None, None
+
 
 
 
